@@ -148,9 +148,9 @@ client.on("interactionCreate", async (interaction) => {
   } catch (error) {
     console.error("[Interaction Error]", error);
 
-    let msg = "An unexpected error occurred while processing this request. Please try again. ◈";
+    let msg = "Something went wrong while processing your request. Please try again.";
     if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-      msg += `\n\n**Debug:** \`${error?.message || error}\``;
+      msg += `\n\n**Debug Details:** \`${error?.message || error}\``;
     }
 
     const replyFn =

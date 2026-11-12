@@ -1,70 +1,63 @@
 /**
  * commands/admin/verify.js
  */
-const { PermissionFlagsBits, EmbedBuilder } = require('discord.js');
-const { errorEmbed, COLORS } = require('../../utils/embeds');
+const { PermissionFlagsBits, EmbedBuilder } = require("discord.js");
+const { errorEmbed, C } = require("../../utils/embeds");
 
 const REDDIT_REGEX = /(?:[a-z0-9-]+\.)?(?:reddit\.com|redd\.it)\/(?:r\/[^\/]+\/)?(?:comments\/[^\/]+(?:\/[^\/]+\/[a-z0-9]+)?|s\/[a-z0-9]+)/i;
-const LOADING_EMOJI = '1481725057024917715';
-const CHECK_EMOJI   = '1481725300349079673';
+const LOADING_EMOJI = "1481725057024917715";
+const CHECK_EMOJI   = "1481725300349079673";
 
 module.exports = {
-    name: 'verify',
-    description: 'Verify a URL/Link manually so it stops being flagged by the ticket auto-moderator.',
-    async execute(interaction) {
-        if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-            return interaction.reply({ embeds: [errorEmbed('Only Administrators can verify links!')], ephemeral: true });
-        }
+  name: "verify",
+  description: "Check if a link in this channel is working.",
+  async execute(interaction) {
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+      return interaction.reply({
+        embeds: [errorEmbed("Only admins can verify links.")],
+        ephemeral: true,
+      });
+    }
 
-        const link = interaction.options.getString('link');
-        let targetMessage = null;
+    const link = interaction.options.getString("link");
+    let targetMessage = null;
 
-        if (link) {
-            const msgId = link.match(/\d+$/)?.[0] || link;
-            targetMessage = await interaction.channel.messages.fetch(msgId).catch(() => null);
-            if (!targetMessage) {
-                return interaction.reply({ embeds: [errorEmbed("I couldn't find that message!")], ephemeral: true });
-            }
-        } else {
-            const messages = await interaction.channel.messages.fetch({ limit: 50 });
-            targetMessage = messages.find(m => REDDIT_REGEX.test(m.content)) || null;
-        }
+    if (link) {
+      const msgId = link.match(/\d+$/)?.[0] || link;
+      targetMessage = await interaction.channel.messages.fetch(msgId).catch(() => null);
+      if (!targetMessage) {
+        return interaction.reply({
+          embeds: [errorEmbed("I couldn't find that message. Make sure the link or ID is correct.")],
+          ephemeral: true,
+        });
+      }
+    } else {
+      const messages  = await interaction.channel.messages.fetch({ limit: 50 });
+      targetMessage   = messages.find((m) => REDDIT_REGEX.test(m.content)) || null;
+    }
 
-        if (!targetMessage) {
-            return interaction.reply({ embeds: [errorEmbed("I couldn't find a recent Reddit link to verify!")], ephemeral: true });
-        }
+    if (!targetMessage) {
+      return interaction.reply({
+        embeds: [errorEmbed("No recent Reddit link found in this channel.")],
+        ephemeral: true,
+      });
+    }
 
-        await verifyMessage(interaction, targetMessage);
-    },
+    await verifyMessage(interaction, targetMessage);
+  },
 };
 
-module.exports.verifyMessage = verifyMessage;
-module.exports.REDDIT_REGEX  = REDDIT_REGEX;
-module.exports.LOADING_EMOJI = LOADING_EMOJI;
-module.exports.CHECK_EMOJI   = CHECK_EMOJI;
+module.exports.verifyMessage  = verifyMessage;
+module.exports.REDDIT_REGEX   = REDDIT_REGEX;
+module.exports.LOADING_EMOJI  = LOADING_EMOJI;
+module.exports.CHECK_EMOJI    = CHECK_EMOJI;
 
 async function verifyMessage(interaction, message) {
-    try {
-        const loadingReaction = message.reactions.cache.get(LOADING_EMOJI);
-        if (loadingReaction) await loadingReaction.users.remove(interaction.client.user.id).catch(() => {});
-        await message.react(CHECK_EMOJI);
-
-        const isReply = interaction.replied || interaction.deferred;
-        const replyFn = isReply ? 'followUp' : 'reply';
-        const embed = new EmbedBuilder()
-            .setColor(COLORS.success)
-            .setTitle('⚜️  Link Authenticated & Verified')
-            .setDescription('This link has been officially authenticated by an Administrator and cleared for inspection. ◈')
-            .setFooter({ text: '◈ Oakawol Private Suite  •  Verification Protocol' })
-            .setTimestamp();
-        await interaction[replyFn]({ embeds: [embed], ephemeral: true });
-
-        const botReply = await message.reply('⚜️ Authenticated & dispatched to client review! ◈');
-        setTimeout(() => botReply.delete().catch(() => {}), 5000);
-    } catch (err) {
-        console.error('[Verify] Error:', err.message);
-        const isReply = interaction.replied || interaction.deferred;
-        const replyFn = isReply ? 'followUp' : 'reply';
-        await interaction[replyFn]({ embeds: [errorEmbed('Something went wrong while verifying!')], ephemeral: true });
-    }
+  try {
+    const loading = message.reactions.cache.get(LOADING_EMOJI);
+    if (loading) await loading.users.remove(interaction.client.user.id).catch(() => {});
+    await message.react(CHECK_EMOJI);
+  } catch (err) {
+    console.error("[Verify]", err.message);
+  }
 }

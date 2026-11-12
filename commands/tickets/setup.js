@@ -1,38 +1,36 @@
 /**
  * commands/tickets/setup.js
  */
-const db = require('../../utils/database');
-const { EmbedBuilder } = require('discord.js');
-const { errorEmbed, COLORS } = require('../../utils/embeds');
+const { EmbedBuilder } = require("discord.js");
+const db = require("../../utils/database");
+const { errorEmbed, C, footerQuip } = require("../../utils/embeds");
 
 module.exports = {
-    name: 'setup',
-    description: 'Set up the ticketing system panel in a channel.',
-    async execute(interaction) {
-        const adminRole          = interaction.options.getRole('admin_role');
-        const logChannel         = interaction.options.getChannel('log_channel');
-        const transcriptChannel  = interaction.options.getChannel('transcript_channel');
+  name: "setup",
+  description: "Set up the ticket system for this server.",
+  async execute(interaction) {
+    const adminRole         = interaction.options.getRole("admin_role");
+    const logChannel        = interaction.options.getChannel("log_channel");
+    const transcriptChannel = interaction.options.getChannel("transcript_channel");
 
-        db.setGuildConfig(interaction.guildId, {
-            adminRoleId: adminRole.id,
-            logChannelId: logChannel.id,
-            transcriptChannelId: transcriptChannel.id,
-        });
+    db.setGuildConfig(interaction.guildId, {
+      adminRoleId:         adminRole.id,
+      logChannelId:        logChannel.id,
+      transcriptChannelId: transcriptChannel.id,
+    });
 
-        const embed = new EmbedBuilder()
-            .setColor(COLORS.success)
-            .setTitle('✅ Ticket System Configured')
-            .setDescription('The ticket system has been successfully configured with the following settings:')
-            .addFields(
-                { name: '👤 Admin Role', value: `${adminRole}`, inline: true },
-                { name: '📝 Logs', value: `${logChannel}`, inline: true },
-                { name: '📄 Transcripts', value: `${transcriptChannel}`, inline: true }
-            )
-            .setFooter({ text: 'Run /category create to set up your departments!' });
+    const embed = new EmbedBuilder()
+      .setColor(C.success)
+      .setTitle("✅  Ticket system ready")
+      .setDescription("All done! Here's what was saved:")
+      .addFields(
+        { name: "👤  Admin role",          value: `${adminRole}`,         inline: true },
+        { name: "📝  Log channel",          value: `${logChannel}`,        inline: true },
+        { name: "📄  Transcripts channel",  value: `${transcriptChannel}`, inline: true }
+      )
+      .setFooter({ text: "Next: use /category create to add ticket types." })
+      .setTimestamp();
 
-        await interaction.reply({
-            embeds: [embed],
-            ephemeral: true,
-        });
-    },
+    await interaction.reply({ embeds: [embed], ephemeral: true });
+  },
 };

@@ -1,274 +1,291 @@
 /**
  * utils/ticketLogic.js
  * All ticket creation, closing, and management logic.
- * Dark Luxury & Obsidian Gold Theme.
  */
 const {
-    EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
-    ChannelType, PermissionFlagsBits, UserSelectMenuBuilder,
-} = require('discord.js');
-const transcript = require('discord-html-transcripts');
-const db = require('./database');
-const { ticketWelcomeEmbed, COLORS, divider, footerQuip } = require('./embeds');
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ChannelType,
+  PermissionFlagsBits,
+  UserSelectMenuBuilder,
+} = require("discord.js");
+const transcript = require("discord-html-transcripts");
+const db         = require("./database");
+const { ticketWelcomeEmbed, C, divider, footerQuip, errorEmbed, successEmbed } = require("./embeds");
 
 function safeArray(val) {
-    if (Array.isArray(val)) return val;
-    if (typeof val === 'string') {
-        try {
-            const parsed = JSON.parse(val);
-            return Array.isArray(parsed) ? parsed : [];
-        } catch {
-            return [];
-        }
-    }
-    return [];
+  if (Array.isArray(val)) return val;
+  if (typeof val === "string") {
+    try {
+      const p = JSON.parse(val);
+      return Array.isArray(p) ? p : [];
+    } catch { return []; }
+  }
+  return [];
 }
+
+// ── Create ticket ─────────────────────────────────────────────────────────────
 
 async function createTicket(interaction, category, answers) {
-    if (!interaction.deferred) await interaction.deferReply({ ephemeral: true });
+  if (!interaction.deferred) await interaction.deferReply({ ephemeral: true });
 
-    if (!interaction.guild.members.me.permissions.has(PermissionFlagsBits.ManageChannels)) {
-        return interaction.editReply({ content: "I lack the `Manage Channels` clearance! Please adjust my role permissions. 🗝️" });
-    }
-
-    const count = db.incrementTicketCount(interaction.guildId);
-    const paddedCount = count.toString().padStart(4, '0');
-    const staffRoles = safeArray(category?.roles);
-
-    let channel;
-    try {
-        channel = await interaction.guild.channels.create({
-            name: `concierge-${paddedCount}`,
-            type: ChannelType.GuildText,
-            parent: category.categoryId,
-            permissionOverwrites: [
-                { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-                {
-                    id: interaction.user.id,
-                    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles],
-                },
-                ...staffRoles.map(roleId => ({
-                    id: roleId,
-                    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles],
-                })),
-            ],
-        });
-    } catch (err) {
-        const msg = err.code === 50035
-            ? 'Invalid department category. Please recreate the ticket category with a valid Discord category! 🏛️'
-            : `Failed to create concierge channel: ${err.message}`;
-        return interaction.editReply({ content: msg });
-    }
-
-    db.createTicket({
-        channelId: channel.id,
-        guildId: interaction.guildId,
-        userId: interaction.user.id,
-        categoryId: category.id,
-        createdAt: Date.now(),
-        answers,
+  if (!interaction.guild.members.me.permissions.has(PermissionFlagsBits.ManageChannels)) {
+    return interaction.editReply({
+      content: "I need the **Manage Channels** permission to create tickets. Please fix my role permissions.",
     });
+  }
 
-    const embed = ticketWelcomeEmbed(interaction.user, paddedCount, category, answers);
+  const count      = db.incrementTicketCount(interaction.guildId);
+  const padded     = count.toString().padStart(4, "0");
+  const staffRoles = safeArray(category?.roles);
 
-    const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('ticket_claim').setLabel('◈ Claim Inquiry').setEmoji('👑').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('ticket_manage_users').setLabel('Manage Access').setEmoji('🗝️').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('ticket_close_prompt').setLabel('Close Terminal').setEmoji('🔒').setStyle(ButtonStyle.Danger),
-    );
-
-    const roleMention = staffRoles[0] ? `<@&${staffRoles[0]}>` : '';
-    await channel.send({ content: `${interaction.user} ${roleMention}`.trim(), embeds: [embed], components: [row] });
-    await interaction.editReply({ content: `✨ Private concierge terminal prepared! Please proceed to ${channel} 🥂` });
-}
-
-async function claimTicket(interaction) {
-    const ticket = db.getTicket(interaction.channelId);
-    if (!ticket) return interaction.reply({ content: 'This is not an active concierge channel.', ephemeral: true });
-    if (ticket.claimantId) {
-        return interaction.reply({ content: `This inquiry is already claimed by <@${ticket.claimantId}>!`, ephemeral: true });
-    }
-
-    db.updateTicket(interaction.channelId, { claimantId: interaction.user.id });
-
-    // Update the message buttons to show who claimed it
-    const message = interaction.message;
-    const oldRow = message.components[0];
-    const newRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder(oldRow.components[0].data).setLabel(`Claimed by ${interaction.user.username}`).setDisabled(true),
-        new ButtonBuilder(oldRow.components[1].data),
-        new ButtonBuilder(oldRow.components[2].data),
-    );
-
-    await interaction.update({ components: [newRow] });
-    await interaction.followUp({
-        content: `👑 Inquiry claimed by ${interaction.user}!`,
-        allowedMentions: { parse: [] },
-    });
-}
-
-async function closePrompt(interaction) {
-    const embed = new EmbedBuilder()
-        .setColor(COLORS.warning)
-        .setTitle('🔒  Conclude this Session?')
-        .setDescription(
-            `Are you certain you wish to conclude this concierge session?\n\n` +
-            `A comprehensive executive transcript will be generated and archived, followed by channel deletion.\n\n` +
-            `*${divider()}*`
-        )
-        .setFooter({ text: '⏳ This action cannot be revoked.' })
-        .setTimestamp();
-
-    const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('ticket_close_confirm').setLabel('Yes, Conclude & Archive').setEmoji('🔒').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId('ticket_close_cancel').setLabel('Remain Open').setEmoji('⚜️').setStyle(ButtonStyle.Secondary),
-    );
-
-    await interaction.reply({
-        embeds: [embed],
-        components: [row],
-        ephemeral: true,
-    });
-}
-
-async function closeTicket(interaction) {
-    const ticket = db.getTicket(interaction.channelId);
-    if (!ticket) {
-        return interaction.reply({ embeds: [errorEmbed('This channel is not an active concierge session.')], ephemeral: true });
-    }
-
-    const config = db.getGuildConfig(interaction.guildId);
-
-    const closingEmbed = new EmbedBuilder()
-        .setColor(COLORS.gold)
-        .setTitle('📜  Archiving Executive Inquiry...')
-        .setDescription('🔒 Concluding session and compiling an archival transcript for your records.\n\n*Kindly hold for archival completion...* ⚜️')
-        .setFooter({ text: footerQuip() })
-        .setTimestamp();
-
-    const isReply = interaction.replied || interaction.deferred;
-    const replyFn = isReply ? 'followUp' : 'reply';
-    await interaction[replyFn]({ embeds: [closingEmbed] }).catch(() => {});
-
-    let file;
-    try {
-        file = await transcript.createTranscript(interaction.channel, {
-            limit: -1,
-            fileName: `transcript-${interaction.channel.name}.html`,
-        });
-    } catch (err) {
-        console.error('[Ticket] Transcript error:', err.message);
-    }
-
-    db.updateTicket(interaction.channelId, { status: 'closed', closedAt: Date.now() });
-
-    const sendPayload = { content: `📜 Archival transcript for **${interaction.channel.name}** — concluded by ${interaction.user}. ⚜️` };
-    if (file) sendPayload.files = [file];
-
-    // Log to log channel
-    if (config.logChannelId) {
-        const logChannel = interaction.guild.channels.cache.get(config.logChannelId);
-        if (logChannel) await logChannel.send(sendPayload).catch(() => {});
-    }
-
-    // Transcript channel
-    if (config.transcriptChannelId) {
-        const transcriptChannel = interaction.guild.channels.cache.get(config.transcriptChannelId);
-        if (transcriptChannel) await transcriptChannel.send(sendPayload).catch(() => {});
-    }
-
-    // DM opener
-    try {
-        const opener = await interaction.client.users.fetch(ticket.userId);
-        await opener.send({
-            content: `⚜️ Your concierge terminal **${interaction.channel.name}** has concluded. Enclosed is your official transcript for future reference. 🥂`,
-            ...(file ? { files: [file] } : {}),
-        });
-    } catch { /* DMs may be closed */ }
-
-    await interaction.channel.delete().catch(() => {});
-}
-
-async function manageUsers(interaction) {
-    const config = db.getGuildConfig(interaction.guildId);
-    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.Administrator) ||
-        (config.adminRoleId && interaction.member.roles.cache.has(config.adminRoleId));
-
-    if (!isAdmin) {
-        return interaction.reply({ content: 'Only administrators can manage member clearances in concierge sessions! 🗝️', ephemeral: true });
-    }
-
-    const select = new UserSelectMenuBuilder()
-        .setCustomId('ticket_user_select')
-        .setPlaceholder('Select members to grant or revoke clearance...')
-        .setMinValues(0)
-        .setMaxValues(10);
-
-    const manageEmbed = new EmbedBuilder()
-        .setColor(COLORS.gold)
-        .setTitle('👥  Manage Terminal Clearances')
-        .setDescription(
-            `Select members to **grant** access to this private session below.\n` +
-            `Deselecting a member will **revoke** their clearance immediately.\n\n` +
-            `*${divider()}*`
-        )
-        .setFooter({ text: '🗝️ Clearances take effect immediately.' })
-        .setTimestamp();
-
-    await interaction.reply({
-        embeds: [manageEmbed],
-        components: [new ActionRowBuilder().addComponents(select)],
-        ephemeral: true,
-    });
-}
-
-async function handleUserUpdate(interaction) {
-    const config = db.getGuildConfig(interaction.guildId);
-    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.Administrator) ||
-        (config.adminRoleId && interaction.member.roles.cache.has(config.adminRoleId));
-
-    if (!isAdmin) {
-        return interaction.reply({ content: 'Only administrators can manage clearances in concierge sessions! 🗝️', ephemeral: true });
-    }
-
-    const ticket = db.getTicket(interaction.channelId);
-    if (!ticket) return interaction.update({ embeds: [errorEmbed('Could not locate session record.')], components: [] });
-
-    const category = db.getCategory(ticket.categoryId);
-    const staffRoles = safeArray(category?.roles);
-    const selectedUsers = interaction.values;
-
-    await interaction.deferUpdate();
-
-    const overwrites = [
+  let channel;
+  try {
+    channel = await interaction.guild.channels.create({
+      name: `ticket-${padded}`,
+      type: ChannelType.GuildText,
+      parent: category.categoryId,
+      permissionOverwrites: [
         { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
         {
-            id: ticket.userId,
-            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles],
+          id: interaction.user.id,
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles],
         },
-        ...staffRoles.map(roleId => ({
-            id: roleId,
-            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles],
+        ...staffRoles.map((roleId) => ({
+          id: roleId,
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles],
         })),
-        ...selectedUsers.map(userId => ({
-            id: userId,
-            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles],
-        })),
-    ];
-
-    await interaction.channel.permissionOverwrites.set(overwrites);
-
-    const successEmbed = new EmbedBuilder()
-        .setColor(COLORS.success)
-        .setTitle('✅  Clearances Updated')
-        .setDescription(`◈ Successfully updated terminal clearance for **${selectedUsers.length}** member(s)!\n\n*${divider()}*`)
-        .setFooter({ text: footerQuip() })
-        .setTimestamp();
-
-    await interaction.followUp({
-        embeds: [successEmbed],
-        ephemeral: true,
+      ],
     });
+  } catch (err) {
+    const msg =
+      err.code === 50035
+        ? "Invalid channel category. Please update the ticket category in settings."
+        : `Could not create the ticket channel: ${err.message}`;
+    return interaction.editReply({ content: msg });
+  }
+
+  db.createTicket({
+    channelId:  channel.id,
+    guildId:    interaction.guildId,
+    userId:     interaction.user.id,
+    categoryId: category.id,
+    createdAt:  Date.now(),
+    answers,
+  });
+
+  const embed = ticketWelcomeEmbed(interaction.user, padded, category, answers);
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId("ticket_claim").setLabel("Claim").setEmoji("✋").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("ticket_manage_users").setLabel("Manage users").setEmoji("👥").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId("ticket_close_prompt").setLabel("Close ticket").setEmoji("🔒").setStyle(ButtonStyle.Danger)
+  );
+
+  const roleMention = staffRoles[0] ? `<@&${staffRoles[0]}>` : "";
+  await channel.send({
+    content: `${interaction.user} ${roleMention}`.trim(),
+    embeds:  [embed],
+    components: [row],
+  });
+
+  await interaction.editReply({
+    content: `✅ Your ticket is open! Head to ${channel}.`,
+  });
+}
+
+// ── Claim ticket ──────────────────────────────────────────────────────────────
+
+async function claimTicket(interaction) {
+  const ticket = db.getTicket(interaction.channelId);
+  if (!ticket) {
+    return interaction.reply({ content: "This channel isn't a ticket.", ephemeral: true });
+  }
+  if (ticket.claimantId) {
+    return interaction.reply({
+      content: `This ticket was already claimed by <@${ticket.claimantId}>.`,
+      ephemeral: true,
+    });
+  }
+
+  db.updateTicket(interaction.channelId, { claimantId: interaction.user.id });
+
+  const oldRow = interaction.message.components[0];
+  const newRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder(oldRow.components[0].data)
+      .setLabel(`Claimed by ${interaction.user.username}`)
+      .setDisabled(true),
+    new ButtonBuilder(oldRow.components[1].data),
+    new ButtonBuilder(oldRow.components[2].data)
+  );
+
+  await interaction.update({ components: [newRow] });
+  await interaction.followUp({
+    content: `✋ Claimed by ${interaction.user}!`,
+    allowedMentions: { parse: [] },
+  });
+}
+
+// ── Close prompt ──────────────────────────────────────────────────────────────
+
+async function closePrompt(interaction) {
+  const embed = new EmbedBuilder()
+    .setColor(C.warning)
+    .setTitle("🔒  Close this ticket?")
+    .setDescription(
+      "Are you sure? A chat transcript will be saved and the channel will be deleted.\n\n" +
+      "*This can't be undone.*"
+    )
+    .setTimestamp();
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId("ticket_close_confirm").setLabel("Yes, close it").setEmoji("🔒").setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId("ticket_close_cancel").setLabel("Cancel").setStyle(ButtonStyle.Secondary)
+  );
+
+  await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+}
+
+// ── Close ticket ──────────────────────────────────────────────────────────────
+
+async function closeTicket(interaction) {
+  const ticket = db.getTicket(interaction.channelId);
+  if (!ticket) {
+    return interaction.reply({ embeds: [errorEmbed("This channel isn't an active ticket.")], ephemeral: true });
+  }
+
+  const config = db.getGuildConfig(interaction.guildId);
+
+  const closingEmbed = new EmbedBuilder()
+    .setColor(C.primary)
+    .setTitle("⏳  Closing ticket…")
+    .setDescription("Saving the transcript and closing the channel. One moment…")
+    .setFooter({ text: footerQuip() })
+    .setTimestamp();
+
+  const isReply = interaction.replied || interaction.deferred;
+  const replyFn = isReply ? "followUp" : "reply";
+  await interaction[replyFn]({ embeds: [closingEmbed] }).catch(() => {});
+
+  let file;
+  try {
+    file = await transcript.createTranscript(interaction.channel, {
+      limit:    -1,
+      fileName: `transcript-${interaction.channel.name}.html`,
+    });
+  } catch (err) {
+    console.error("[Ticket] Transcript error:", err.message);
+  }
+
+  db.updateTicket(interaction.channelId, { status: "closed", closedAt: Date.now() });
+
+  const payload = { content: `📄 Transcript for **${interaction.channel.name}** — closed by ${interaction.user}.` };
+  if (file) payload.files = [file];
+
+  if (config.logChannelId) {
+    const logCh = interaction.guild.channels.cache.get(config.logChannelId);
+    if (logCh) await logCh.send(payload).catch(() => {});
+  }
+
+  if (config.transcriptChannelId) {
+    const tCh = interaction.guild.channels.cache.get(config.transcriptChannelId);
+    if (tCh) await tCh.send(payload).catch(() => {});
+  }
+
+  try {
+    const opener = await interaction.client.users.fetch(ticket.userId);
+    await opener.send({
+      content: `Your ticket **${interaction.channel.name}** was closed. Here's your transcript:`,
+      ...(file ? { files: [file] } : {}),
+    });
+  } catch { /* DMs closed */ }
+
+  await interaction.channel.delete().catch(() => {});
+}
+
+// ── Manage users ──────────────────────────────────────────────────────────────
+
+async function manageUsers(interaction) {
+  const config  = db.getGuildConfig(interaction.guildId);
+  const isAdmin =
+    interaction.member.permissions.has(PermissionFlagsBits.Administrator) ||
+    (config.adminRoleId && interaction.member.roles.cache.has(config.adminRoleId));
+
+  if (!isAdmin) {
+    return interaction.reply({ content: "Only admins can manage ticket users.", ephemeral: true });
+  }
+
+  const select = new UserSelectMenuBuilder()
+    .setCustomId("ticket_user_select")
+    .setPlaceholder("Pick members to add or remove…")
+    .setMinValues(0)
+    .setMaxValues(10);
+
+  const embed = new EmbedBuilder()
+    .setColor(C.primary)
+    .setTitle("👥  Manage ticket access")
+    .setDescription(
+      "Select members to **add** them to this ticket.\n" +
+      "Deselecting a member will **remove** their access.\n\n" +
+      `*${divider()}*`
+    )
+    .setFooter({ text: "Changes take effect right away." })
+    .setTimestamp();
+
+  await interaction.reply({
+    embeds:     [embed],
+    components: [new ActionRowBuilder().addComponents(select)],
+    ephemeral:  true,
+  });
+}
+
+// ── Handle user select ────────────────────────────────────────────────────────
+
+async function handleUserUpdate(interaction) {
+  const config  = db.getGuildConfig(interaction.guildId);
+  const isAdmin =
+    interaction.member.permissions.has(PermissionFlagsBits.Administrator) ||
+    (config.adminRoleId && interaction.member.roles.cache.has(config.adminRoleId));
+
+  if (!isAdmin) {
+    return interaction.reply({ content: "Only admins can manage ticket users.", ephemeral: true });
+  }
+
+  const ticket = db.getTicket(interaction.channelId);
+  if (!ticket) {
+    return interaction.update({ embeds: [errorEmbed("Could not find the ticket record.")], components: [] });
+  }
+
+  const category     = db.getCategory(ticket.categoryId);
+  const staffRoles   = safeArray(category?.roles);
+  const selectedUsers = interaction.values;
+
+  await interaction.deferUpdate();
+
+  const overwrites = [
+    { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+    {
+      id: ticket.userId,
+      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles],
+    },
+    ...staffRoles.map((roleId) => ({
+      id: roleId,
+      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles],
+    })),
+    ...selectedUsers.map((userId) => ({
+      id: userId,
+      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles],
+    })),
+  ];
+
+  await interaction.channel.permissionOverwrites.set(overwrites);
+
+  await interaction.followUp({
+    embeds:    [successEmbed("Access updated", `Updated access for **${selectedUsers.length}** member(s).`)],
+    ephemeral: true,
+  });
 }
 
 module.exports = { createTicket, claimTicket, closePrompt, closeTicket, manageUsers, handleUserUpdate };

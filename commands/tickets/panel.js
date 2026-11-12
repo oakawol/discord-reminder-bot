@@ -1,51 +1,40 @@
 /**
  * commands/tickets/panel.js
  */
-const {
-  EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-} = require("discord.js");
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 const db = require("../../utils/database");
-const { COLORS, errorEmbed } = require("../../utils/embeds");
+const { C, errorEmbed, successEmbed } = require("../../utils/embeds");
 
 module.exports = {
   name: "panel",
-  description: "Send the ticket creation panel to the current channel.",
+  description: "Post a ticket panel in a channel.",
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
 
     if (sub === "create") {
-      const title = interaction.options.getString("title");
+      const title       = interaction.options.getString("title");
       const description = interaction.options.getString("description");
-      const channel =
-        interaction.options.getChannel("channel") || interaction.channel;
+      const channel     = interaction.options.getChannel("channel") || interaction.channel;
+      const categories  = db.getCategories(interaction.guildId);
 
-      const categories = db.getCategories(interaction.guildId);
       if (categories.length === 0) {
         return interaction.reply({
-          embeds: [
-            errorEmbed(
-              "Create at least one category with `/category create` first!",
-            ),
-          ],
+          embeds: [errorEmbed("No categories found. Create one first with `/category create`.")],
           ephemeral: true,
         });
       }
 
       const embed = new EmbedBuilder()
-        .setColor(COLORS.gold)
+        .setColor(C.primary)
         .setTitle(title)
         .setDescription(
           `${description}\n\n` +
-            `◈ ━━━━━━━━ ◈ ━━━━━━━━ ◈\n` +
-            `*Select a department below to initiate private concierge communication.*`,
+          `Pick a category below to open a support ticket.`
         )
-        .setFooter({ text: "👑 Premier Concierge Suite  •  Oakawol Private Service" })
+        .setFooter({ text: "Oakawol Bot  ·  Ticket support" })
         .setTimestamp();
 
-      // Max 5 buttons per ActionRow
+      // Max 5 buttons per row
       const rows = [];
       for (let i = 0; i < categories.length; i++) {
         if (i % 5 === 0) rows.push(new ActionRowBuilder());
@@ -54,13 +43,13 @@ module.exports = {
             .setCustomId(`ticket_open_${categories[i].id}`)
             .setLabel(categories[i].name)
             .setEmoji(categories[i].emoji)
-            .setStyle(ButtonStyle.Primary),
+            .setStyle(ButtonStyle.Primary)
         );
       }
 
       await channel.send({ embeds: [embed], components: rows });
       await interaction.reply({
-        content: `✨ **Panel deployed** in ${channel}! It looks gorgeous~ 🌸`,
+        embeds: [successEmbed("Panel sent", `Ticket panel posted in ${channel}.`)],
         ephemeral: true,
       });
     }

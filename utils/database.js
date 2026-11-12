@@ -28,6 +28,7 @@ const defaultSchema = {
     memory: {},
     brain_memories: [],
     upi: {},
+    task_pings: {},
 };
 
 // In-memory data store
@@ -50,6 +51,7 @@ function loadDatabase() {
                 memory: parsed.memory || {},
                 brain_memories: parsed.brain_memories || [],
                 upi: parsed.upi || {},
+                task_pings: parsed.task_pings || {},
             };
         } else {
             saveSync();
@@ -414,6 +416,69 @@ function getAllUpi(guildId) {
     return Object.values(db.upi).filter((u) => u.guildId === guildId);
 }
 
+// ─── Task Pings ──────────────────────────────────────────────────────────────
+
+function addTaskPing(userId, channelId, task, initiatorId, intervalMs = 30 * 60 * 1000) {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const nextPingTime = Date.now() + intervalMs;
+    db.task_pings[id] = {
+        id,
+        userId,
+        channelId,
+        task,
+        initiatorId,
+        intervalMs,
+        nextPingTime,
+        createdAt: Date.now(),
+    };
+    scheduleSave();
+    return db.task_pings[id];
+}
+
+function getTaskPings() {
+    return Object.values(db.task_pings || {});
+}
+
+function getTaskPing(id) {
+    return db.task_pings?.[id] || null;
+}
+
+function getActiveTaskPingsForUserInChannel(userId, channelId) {
+    return Object.values(db.task_pings || {}).filter(
+        (tp) => tp.userId === userId && tp.channelId === channelId
+    );
+}
+
+function updateTaskPingNextTime(id, nextPingTime) {
+    if (db.task_pings && db.task_pings[id]) {
+        db.task_pings[id].nextPingTime = nextPingTime;
+        scheduleSave();
+    }
+}
+
+function removeTaskPing(id) {
+    if (db.task_pings && db.task_pings[id]) {
+        const removed = db.task_pings[id];
+        delete db.task_pings[id];
+        scheduleSave();
+        return removed;
+    }
+    return null;
+}
+
+function removeTaskPingsByUserAndChannel(userId, channelId) {
+    let removedList = [];
+    if (!db.task_pings) return removedList;
+    for (const [id, tp] of Object.entries(db.task_pings)) {
+        if (tp.userId === userId && tp.channelId === channelId) {
+            removedList.push(tp);
+            delete db.task_pings[id];
+        }
+    }
+    if (removedList.length > 0) scheduleSave();
+    return removedList;
+}
+
 module.exports = {
     // Economy
     getUser, addMoney, removeMoney, getAllUsers, getTransactions,
@@ -432,4 +497,7 @@ module.exports = {
     addBrainMemory, deleteBrainMemoryByKeyword, getBrainMemories, getAllRelevantBrainMemories,
     // UPI
     setUpi, getUpi, deleteUpi, getAllUpi,
+    // Task Pings
+    addTaskPing, getTaskPings, getTaskPing, getActiveTaskPingsForUserInChannel,
+    updateTaskPingNextTime, removeTaskPing, removeTaskPingsByUserAndChannel,
 };

@@ -7,14 +7,11 @@ const { cooldownRemovedEmbed, errorEmbed } = require("../../utils/embeds");
 
 module.exports = {
   name: "remove_cd",
-  description:
-    "Remove/Reset an active cooldown and all pending reminders from a user prematurely.",
+  description: "Remove a cooldown from a user early.",
   async execute(interaction) {
-    if (
-      !interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
-    ) {
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
       return interaction.reply({
-        embeds: [errorEmbed("Only Administrators can override executive cooldowns!")],
+        embeds: [errorEmbed("Only admins can remove cooldowns.")],
         ephemeral: true,
       });
     }
@@ -23,14 +20,11 @@ module.exports = {
 
     if (!targetUser) {
       return interaction.reply({
-        embeds: [
-          errorEmbed(
-            "Please specify a valid member to remove the cooldown from! ◈",
-          ),
-        ],
+        embeds: [errorEmbed("Please pick a valid user.")],
         ephemeral: true,
       });
     }
+
     db.removeCooldownByUserId(targetUser.id);
     db.removeRemindersByUserId(targetUser.id);
 

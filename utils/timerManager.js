@@ -59,7 +59,7 @@ async function processExpiredReminder(reminder) {
 
         if (!targetUser || !targetChannel) return;
 
-        const initiatorTag = initiator ? (initiator.username || initiator.tag) : 'Executive Suite';
+        const initiatorTag = initiator ? (initiator.username || initiator.tag) : 'Oakawol Bot';
         const { file, embed } = embeds.reminderFiredEmbed(reminder.message, initiatorTag);
 
         // DM
@@ -70,6 +70,73 @@ async function processExpiredReminder(reminder) {
     } catch (err) {
         console.error(`[Reminder] Error processing ${reminder.id}:`, err.message);
         db.removeReminder(reminder.id);
+    }
+}
+
+// ─── Task Pings ──────────────────────────────────────────────────────────────
+
+const activeTaskTimeouts = new Map();
+
+async function processTaskPing(taskPing) {
+    // Check if task ping still exists in db
+    const current = db.getTaskPing(taskPing.id);
+    if (!current) {
+        activeTaskTimeouts.delete(taskPing.id);
+        return;
+    }
+
+    try {
+        const targetUser = await _client.users.fetch(current.userId).catch(() => null);
+        const channel = await _client.channels.fetch(current.channelId).catch(() => null);
+
+        if (!channel) {
+            // Channel doesn't exist anymore, clean up
+            db.removeTaskPing(current.id);
+            activeTaskTimeouts.delete(current.id);
+            return;
+        }
+
+        const taskEmbed = embeds.taskPingEmbed(targetUser, current.task, current.initiatorId);
+
+        await channel.send({
+            content: `<@${current.userId}>`,
+            embeds: [taskEmbed],
+        }).catch((err) => {
+            console.error(`[TaskPing] Failed to send ping to channel ${current.channelId}:`, err.message);
+        });
+
+        // Schedule next interval ping (default 30 minutes)
+        const nextTime = Date.now() + (current.intervalMs || 30 * 60 * 1000);
+        db.updateTaskPingNextTime(current.id, nextTime);
+        current.nextPingTime = nextTime;
+        scheduleTaskPing(current);
+    } catch (err) {
+        console.error(`[TaskPing] Error processing ${taskPing.id}:`, err.message);
+    }
+}
+
+function scheduleTaskPing(taskPing) {
+    if (activeTaskTimeouts.has(taskPing.id)) {
+        clearTimeout(activeTaskTimeouts.get(taskPing.id));
+        activeTaskTimeouts.delete(taskPing.id);
+    }
+
+    const remaining = taskPing.nextPingTime - Date.now();
+    if (remaining <= 0) {
+        processTaskPing(taskPing);
+    } else if (remaining > MAX_TIMEOUT) {
+        const to = setTimeout(() => scheduleTaskPing(taskPing), MAX_TIMEOUT);
+        activeTaskTimeouts.set(taskPing.id, to);
+    } else {
+        const to = setTimeout(() => processTaskPing(taskPing), remaining);
+        activeTaskTimeouts.set(taskPing.id, to);
+    }
+}
+
+function cancelTaskPingTimeout(id) {
+    if (activeTaskTimeouts.has(id)) {
+        clearTimeout(activeTaskTimeouts.get(id));
+        activeTaskTimeouts.delete(id);
     }
 }
 
@@ -111,7 +178,19 @@ function init(client) {
         scheduleReminder(reminder);
     }
 
-    console.log('[TimerManager] Restored all cooldowns and reminders.');
+    for (const tp of db.getTaskPings()) {
+        scheduleTaskPing(tp);
+    }
+
+    console.log('[TimerManager] Restored all cooldowns, reminders, and task pings.');
 }
 
-module.exports = { init, scheduleCooldown, scheduleReminder, processExpiredCooldown, processExpiredReminder };
+module.exports = {
+    init,
+    scheduleCooldown,
+    scheduleReminder,
+    processExpiredCooldown,
+    processExpiredReminder,
+    scheduleTaskPing,
+    cancelTaskPingTimeout,
+};

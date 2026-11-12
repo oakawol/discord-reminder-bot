@@ -1,53 +1,54 @@
-const { AttachmentBuilder } = require('discord.js');
+/**
+ * commands/fun/imagine.js
+ */
+const { EmbedBuilder, AttachmentBuilder } = require("discord.js");
+const { C, errorEmbed } = require("../../utils/embeds");
 
 module.exports = {
-    name: 'imagine',
-    description: 'Generate a beautiful image from a prompt 🎨✨',
-    async execute(interaction) {
-        const prompt = interaction.options.getString('prompt');
-        if (!prompt) {
-            return interaction.reply({ content: 'You need to specify what to imagine! ◈', ephemeral: true });
-        }
+  name: "imagine",
+  description: "Generate an AI image from a text description.",
+  async execute(interaction) {
+    const prompt = interaction.options.getString("prompt");
+    if (!prompt) {
+      return interaction.reply({
+        embeds: [errorEmbed("Please describe what you want to generate.")],
+        ephemeral: true,
+      });
+    }
 
-        if (interaction.deferReply) {
-            await interaction.deferReply();
-        } else if (interaction.channel?.sendTyping) {
-            await interaction.channel.sendTyping();
-        }
+    if (interaction.deferReply)         await interaction.deferReply();
+    else if (interaction.channel?.sendTyping) await interaction.channel.sendTyping();
 
-        try {
-            // Image generation is FREE on Pollinations - do NOT add an API key here
-            // Adding a key with zero balance causes 401/402 errors
-            const encodedPrompt = encodeURIComponent(prompt);
-            const seed = Math.floor(Math.random() * 1000000);
-            const url = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&nologo=true&model=flux&seed=${seed}`;
-            
-            const response = await fetch(url);
-            if (!response.ok) {
-                throw new Error(`Failed to fetch image (${response.status} ${response.statusText})`);
-            }
+    try {
+      const encoded  = encodeURIComponent(prompt);
+      const seed     = Math.floor(Math.random() * 1_000_000);
+      const url      = `https://image.pollinations.ai/prompt/${encoded}?width=1024&height=1024&nologo=true&model=flux&seed=${seed}`;
+      const response = await fetch(url);
 
-            const buffer = await response.arrayBuffer();
-            const attachment = new AttachmentBuilder(Buffer.from(buffer), { name: 'imagine.jpeg' });
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
 
-            const payload = { 
-                content: `🎨 **Imagined:** *${prompt}*`,
-                files: [attachment] 
-            };
+      const buffer     = await response.arrayBuffer();
+      const attachment = new AttachmentBuilder(Buffer.from(buffer), { name: "imagine.jpeg" });
 
-            if (interaction.editReply) {
-                await interaction.editReply(payload);
-            } else {
-                await interaction.reply(payload);
-            }
-        } catch (error) {
-            console.error('[Imagine Error]', error);
-            const errorPayload = { content: 'Unable to render the requested image at this time. Please try again later. ◈' };
-            if (interaction.editReply) {
-                await interaction.editReply(errorPayload);
-            } else {
-                await interaction.reply(errorPayload);
-            }
-        }
-    },
+      const embed = new EmbedBuilder()
+        .setColor(C.primary)
+        .setTitle("🎨  Here's your image")
+        .setDescription(`> *${prompt}*`)
+        .setImage("attachment://imagine.jpeg")
+        .setFooter({ text: "Made with Pollinations AI" })
+        .setTimestamp();
+
+      const payload = { embeds: [embed], files: [attachment] };
+      if (interaction.editReply) await interaction.editReply(payload);
+      else                       await interaction.reply(payload);
+
+    } catch (error) {
+      console.error("[Imagine]", error);
+      const errPayload = {
+        embeds: [errorEmbed("Could not generate the image right now. Please try again later.")],
+      };
+      if (interaction.editReply) await interaction.editReply(errPayload);
+      else                       await interaction.reply(errPayload);
+    }
+  },
 };

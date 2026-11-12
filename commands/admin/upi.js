@@ -1,191 +1,197 @@
 /**
  * commands/admin/upi.js
- * Save & lookup UPI IDs + QR codes per user per guild.
+ * Save and look up UPI IDs and QR codes per user.
  */
-const { EmbedBuilder, AttachmentBuilder, PermissionFlagsBits } = require('discord.js');
-const db = require('../../utils/database');
-const { COLORS, divider, footerQuip, errorEmbed } = require('../../utils/embeds');
-const fs = require('fs');
-const path = require('path');
+const { EmbedBuilder, AttachmentBuilder, PermissionFlagsBits } = require("discord.js");
+const db = require("../../utils/database");
+const { C, divider, footerQuip, errorEmbed, successEmbed } = require("../../utils/embeds");
+const fs   = require("fs");
+const path = require("path");
 
 module.exports = {
-    name: 'upi',
-    description: 'Save or look up a user\'s UPI ID and QR code 💳',
-    async execute(interaction) {
-        const sub = interaction.options.getSubcommand();
+  name: "upi",
+  description: "Save or look up a user's UPI ID and QR code.",
+  async execute(interaction) {
+    const sub = interaction.options.getSubcommand();
 
-        // ── SET ───────────────────────────────────────────────────────────────
-        if (sub === 'set') {
-            if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-                return interaction.reply({ embeds: [errorEmbed('Only Administrators can save UPI info!')], ephemeral: true });
-            }
+    // ── SET ───────────────────────────────────────────────────────────────────
+    if (sub === "set") {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+        return interaction.reply({
+          embeds: [errorEmbed("Only admins can save UPI details.")],
+          ephemeral: true,
+        });
+      }
 
-            const targetUser = interaction.options.getUser('user');
-            const upiId      = interaction.options.getString('upi_id');
-            const attachment = interaction.options.getAttachment('qr_code');
+      const targetUser = interaction.options.getUser("user");
+      const upiId      = interaction.options.getString("upi_id");
+      const attachment = interaction.options.getAttachment("qr_code");
 
-            // Validate UPI format loosely
-            if (!upiId.includes('@')) {
-                return interaction.reply({ embeds: [errorEmbed('That doesn\'t look like a valid UPI ID! It should contain `@` (e.g. `name@upi`). ◈')], ephemeral: true });
-            }
+      if (!upiId.includes("@")) {
+        return interaction.reply({
+          embeds: [errorEmbed("That doesn't look like a valid UPI ID.\nIt should contain `@` — for example: `name@upi`.")],
+          ephemeral: true,
+        });
+      }
 
-            let qrDataUri = null;
-            if (attachment) {
-                const ext = attachment.name.split('.').pop() || 'png';
-                try {
-                    const res = await fetch(attachment.url);
-                    if (!res.ok) throw new Error(`Failed to fetch QR code: ${res.statusText}`);
-                    const buffer = await res.arrayBuffer();
-                    const base64Str = Buffer.from(buffer).toString('base64');
-                    qrDataUri = `data:image/${ext};base64,${base64Str}`;
-                } catch (err) {
-                    console.error('[UPI Error] Failed to fetch/parse QR code:', err);
-                    return interaction.reply({ embeds: [errorEmbed('Failed to process the QR code attachment! ◈')], ephemeral: true });
-                }
-            }
-
-            db.setUpi(targetUser.id, interaction.guildId, upiId, qrDataUri);
-
-            const embed = new EmbedBuilder()
-                .setColor(COLORS.gold)
-                .setTitle('🏛️  Payment Dossier Registered • UPI Vault')
-                .setDescription(
-                    `**${targetUser.username}'s** private payment credentials have been securely registered in the sovereign vault.\n\n` +
-                    `*${divider()}*`
-                )
-                .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
-                .addFields(
-                    { name: '👤  User',   value: `${targetUser}`,  inline: true },
-                    { name: '💳  UPI ID', value: `\`${upiId}\``,   inline: true }
-                )
-                .setFooter({ text: footerQuip() })
-                .setTimestamp();
-
-            const files = [];
-            if (qrDataUri) {
-                const matches = qrDataUri.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
-                if (matches) {
-                    const ext = matches[1];
-                    const buffer = Buffer.from(matches[2], 'base64');
-                    const filename = `qr_${targetUser.id}_${interaction.guildId}.${ext}`;
-                    const file = new AttachmentBuilder(buffer, { name: filename });
-                    embed.setImage(`attachment://${filename}`);
-                    files.push(file);
-                }
-            }
-
-            return interaction.reply({ embeds: [embed], files });
+      let qrDataUri = null;
+      if (attachment) {
+        const ext = attachment.name.split(".").pop() || "png";
+        try {
+          const res    = await fetch(attachment.url);
+          if (!res.ok) throw new Error(`Fetch failed: ${res.statusText}`);
+          const buffer = await res.arrayBuffer();
+          qrDataUri    = `data:image/${ext};base64,${Buffer.from(buffer).toString("base64")}`;
+        } catch (err) {
+          console.error("[UPI] QR fetch error:", err);
+          return interaction.reply({
+            embeds: [errorEmbed("Could not read the QR code image. Please try again.")],
+            ephemeral: true,
+          });
         }
+      }
 
-        // ── GET ───────────────────────────────────────────────────────────────
-        if (sub === 'get') {
-            const targetUser = interaction.options.getUser('user') || interaction.user;
-            const record     = db.getUpi(targetUser.id, interaction.guildId);
+      db.setUpi(targetUser.id, interaction.guildId, upiId, qrDataUri);
 
-            if (!record) {
-                return interaction.reply({
-                    embeds: [errorEmbed(`No payment credentials stored for **${targetUser.username}** yet!\nAn administrator can register them with \`/upi set\`. ◈`)],
-                    ephemeral: true,
-                });
-            }
+      const embed = new EmbedBuilder()
+        .setColor(C.success)
+        .setTitle("💳  UPI details saved")
+        .setDescription(`Payment details for ${targetUser} have been saved.`)
+        .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
+        .addFields(
+          { name: "👤  User",    value: `${targetUser}`,  inline: true },
+          { name: "💳  UPI ID",  value: `\`${upiId}\``,   inline: true }
+        )
+        .setFooter({ text: footerQuip() })
+        .setTimestamp();
 
-            const embed = new EmbedBuilder()
-                .setColor(COLORS.gold)
-                .setTitle(`💳  ${targetUser.username}'s Private UPI Dossier`)
-                .setDescription(
-                    `Encrypted payment credentials retrieved from the private vault.\n\n` +
-                    `*${divider()}*`
-                )
-                .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
-                .addFields(
-                    { name: '👤  User',       value: `${targetUser}`,                                                 inline: true },
-                    { name: '💳  UPI ID',     value: `\`${record.upiId}\``,                                           inline: true },
-                    { name: '🗓️  Saved',      value: `<t:${Math.floor(record.savedAt / 1000)}:R>`,                    inline: true }
-                )
-                .setFooter({ text: `◈ Tap UPI ID to copy  •  ${footerQuip()}` })
-                .setTimestamp();
-
-            const files = [];
-            if (record.qrUrl) {
-                if (record.qrUrl.startsWith('data:image')) {
-                    const matches = record.qrUrl.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
-                    if (matches) {
-                        const ext = matches[1];
-                        const buffer = Buffer.from(matches[2], 'base64');
-                        const filename = `qr_${record.userId}_${interaction.guildId}.${ext}`;
-                        const file = new AttachmentBuilder(buffer, { name: filename });
-                        embed.setImage(`attachment://${filename}`);
-                        files.push(file);
-                    }
-                } else if (record.qrUrl.startsWith('http')) {
-                    // Legacy support for hosted URLs
-                    embed.setImage(record.qrUrl);
-                } else {
-                    // Local file
-                    const qrPath = path.join(__dirname, '../../assets/qr', record.qrUrl);
-                    if (fs.existsSync(qrPath)) {
-                        const file = new AttachmentBuilder(qrPath, { name: record.qrUrl });
-                        embed.setImage(`attachment://${record.qrUrl}`);
-                        files.push(file);
-                    }
-                }
-                embed.addFields({ name: '🖼️  QR Code', value: 'Shown below — scan to pay!', inline: false });
-            } else {
-                embed.addFields({ name: '🖼️  QR Code', value: '*No QR code saved yet.*', inline: false });
-            }
-
-            return interaction.reply({ embeds: [embed], files });
+      const files = [];
+      if (qrDataUri) {
+        const matches = qrDataUri.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
+        if (matches) {
+          const file = new AttachmentBuilder(Buffer.from(matches[2], "base64"), {
+            name: `qr_${targetUser.id}_${interaction.guildId}.${matches[1]}`,
+          });
+          embed.setImage(`attachment://${file.name}`);
+          files.push(file);
         }
+      }
 
-        // ── DELETE ────────────────────────────────────────────────────────────
-        if (sub === 'delete') {
-            if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-                return interaction.reply({ embeds: [errorEmbed('Only Administrators can delete UPI info!')], ephemeral: true });
-            }
+      return interaction.reply({ embeds: [embed], files });
+    }
 
-            const targetUser = interaction.options.getUser('user');
-            const existing   = db.getUpi(targetUser.id, interaction.guildId);
+    // ── GET ───────────────────────────────────────────────────────────────────
+    if (sub === "get") {
+      const targetUser = interaction.options.getUser("user") || interaction.user;
+      const record     = db.getUpi(targetUser.id, interaction.guildId);
 
-            if (!existing) {
-                return interaction.reply({ embeds: [errorEmbed(`No UPI dossier found for **${targetUser.username}**. ◈`)], ephemeral: true });
-            }
+      if (!record) {
+        return interaction.reply({
+          embeds: [errorEmbed(`No UPI details found for **${targetUser.username}**.\nAn admin can add them with \`/upi set\`.`)],
+          ephemeral: true,
+        });
+      }
 
-            db.deleteUpi(targetUser.id, interaction.guildId);
+      const embed = new EmbedBuilder()
+        .setColor(C.primary)
+        .setTitle(`💳  ${targetUser.username}'s payment details`)
+        .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
+        .addFields(
+          { name: "👤  User",    value: `${targetUser}`,                                      inline: true },
+          { name: "💳  UPI ID",  value: `\`${record.upiId}\``,                                inline: true },
+          { name: "🗓️  Saved",   value: `<t:${Math.floor(record.savedAt / 1000)}:R>`,         inline: true }
+        )
+        .setFooter({ text: `Copy the UPI ID above to pay  ·  ${footerQuip()}` })
+        .setTimestamp();
 
-            const embed = new EmbedBuilder()
-                .setColor(COLORS.danger)
-                .setTitle('🗑️  Payment Dossier Expunged')
-                .setDescription(`Payment credentials for **${targetUser.username}** have been permanently removed from the vault.\n\n*${divider()}*`)
-                .setFooter({ text: footerQuip() })
-                .setTimestamp();
-
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+      const files = [];
+      if (record.qrUrl) {
+        if (record.qrUrl.startsWith("data:image")) {
+          const matches = record.qrUrl.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
+          if (matches) {
+            const fname = `qr_${record.userId}_${interaction.guildId}.${matches[1]}`;
+            const file  = new AttachmentBuilder(Buffer.from(matches[2], "base64"), { name: fname });
+            embed.setImage(`attachment://${fname}`);
+            embed.addFields({ name: "🖼️  QR code", value: "Scan to pay", inline: false });
+            files.push(file);
+          }
+        } else if (record.qrUrl.startsWith("http")) {
+          embed.setImage(record.qrUrl);
+          embed.addFields({ name: "🖼️  QR code", value: "Scan to pay", inline: false });
+        } else {
+          const qrPath = path.join(__dirname, "../../assets/qr", record.qrUrl);
+          if (fs.existsSync(qrPath)) {
+            const file = new AttachmentBuilder(qrPath, { name: record.qrUrl });
+            embed.setImage(`attachment://${record.qrUrl}`);
+            embed.addFields({ name: "🖼️  QR code", value: "Scan to pay", inline: false });
+            files.push(file);
+          }
         }
+      } else {
+        embed.addFields({ name: "🖼️  QR code", value: "*Not saved yet.*", inline: false });
+      }
 
-        // ── LIST ──────────────────────────────────────────────────────────────
-        if (sub === 'list') {
-            if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-                return interaction.reply({ embeds: [errorEmbed('Only Administrators can view all UPI records!')], ephemeral: true });
-            }
+      return interaction.reply({ embeds: [embed], files });
+    }
 
-            const records = db.getAllUpi(interaction.guildId);
+    // ── DELETE ────────────────────────────────────────────────────────────────
+    if (sub === "delete") {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+        return interaction.reply({
+          embeds: [errorEmbed("Only admins can delete UPI details.")],
+          ephemeral: true,
+        });
+      }
 
-            if (!records.length) {
-                return interaction.reply({ embeds: [errorEmbed('No UPI dossiers registered on this server yet! ◈')], ephemeral: true });
-            }
+      const targetUser = interaction.options.getUser("user");
+      const existing   = db.getUpi(targetUser.id, interaction.guildId);
 
-            const lines = records.map(r =>
-                `<@${r.userId}> — \`${r.upiId}\` ${r.qrUrl ? '🖼️' : ''}`
-            ).join('\n');
+      if (!existing) {
+        return interaction.reply({
+          embeds: [errorEmbed(`No UPI details found for **${targetUser.username}**.`)],
+          ephemeral: true,
+        });
+      }
 
-            const embed = new EmbedBuilder()
-                .setColor(COLORS.gold)
-                .setTitle('🏛️  Sovereign Registry • Saved UPI Dossiers')
-                .setDescription(`${lines}\n\n*${divider()}*`)
-                .setFooter({ text: `${records.length} dossier(s)  •  ${footerQuip()}` })
-                .setTimestamp();
+      db.deleteUpi(targetUser.id, interaction.guildId);
+      return interaction.reply({
+        embeds: [successEmbed("Deleted", `UPI details for **${targetUser.username}** have been removed.`)],
+        ephemeral: true,
+      });
+    }
 
-            return interaction.reply({ embeds: [embed], ephemeral: true });
-        }
-    },
+    // ── LIST ──────────────────────────────────────────────────────────────────
+    if (sub === "list") {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+        return interaction.reply({
+          embeds: [errorEmbed("Only admins can view all UPI records.")],
+          ephemeral: true,
+        });
+      }
+
+      const records = db.getAllUpi(interaction.guildId);
+      if (!records.length) {
+        return interaction.reply({
+          embeds: [errorEmbed("No UPI records saved on this server yet.")],
+          ephemeral: true,
+        });
+      }
+
+      const lines = records
+        .map((r) => `<@${r.userId}>  ·  \`${r.upiId}\` ${r.qrUrl ? "🖼️" : ""}`)
+        .join("\n");
+
+      return interaction.reply({
+        embeds: [
+          new EmbedBuilder()
+            .setColor(C.primary)
+            .setTitle("💳  UPI records")
+            .setDescription(`${lines}\n\n*${divider()}*`)
+            .setFooter({ text: `${records.length} record(s)  ·  ${footerQuip()}` })
+            .setTimestamp(),
+        ],
+        ephemeral: true,
+      });
+    }
+  },
 };

@@ -1,80 +1,74 @@
-# 🏛️ Oakawol Executive Suite ✨
+# 🤖 Oakawol Bot
 
-A premier, all-in-one Discord concierge designed with an ultra-sleek **Dark Luxury & Obsidian Gold** aesthetic! It features an autonomous **AI Executive Concierge**, a secure **Sovereign Treasury & Economy Ledger**, a private **Concierge Ticket Terminal**, and a precise **Chronometer & Reminder System**. 👑💎
+A versatile, easy-to-use Discord bot featuring AI chat, server economy, support tickets, and reminders.
 
 ---
 
-## ✨ Core Operational Features
+## ✨ Features
 
-### 🤖 Autonomous AI Chat Interface
-Communicate with the bot natively! Powered by **Groq** ultra-fast LLMs (`llama-3.3-70b-versatile`, `llama-3.1-8b-instant`, `deepseek-r1-distill-llama-70b`) with multi-provider fallback strategy (Cerebras, OpenRouter, Pollinations).
-- **Smart Protocol Execution**: The bot can execute its own commands directly if you politely ask it (e.g., "Could you add 500 ₹ to @user?" or "Schedule a recharge in 10m").
-- **Mention to Uplink**: Simply ping the bot or DM it to spark up a seamless, contextual connection!
-- **Persistent Memory Bank**: The bot actively remembers details about users and the server context across conversations.
-- **Administrative Security**: Sensitive AI execution tools (such as modifying balances, managing channels, and reading server logs) are strictly protected by role-based guardrails, ensuring only Administrators can execute administrative actions via the AI.
+### 🤖 AI Chat
+Chat naturally with the bot by mentioning it or sending it a Direct Message.
+- **Smart Actions**: The bot can run built-in commands when asked (for example, checking balances, adding coins, or scheduling reminders).
+- **Web Search & Tools**: Real-time Google search, weather lookups, Reddit browsing, translations, and more.
+- **Memory**: Remembers details about users and servers across conversations.
+- **Admin Security**: Sensitive actions (moderation, balance changes, server management) require administrator permissions.
 
-#### 🧠 AI Capabilities & Tools
-The AI is equipped with a massive toolkit (over 40+ dynamic tools!), allowing it to perform actions natively in chat without needing slash commands:
-- **Moderation & Security**: React to/delete recent messages, timeout/kick/ban/unban users, set slowmode, and lock/unlock channels. *(Admin Only)*
-- **Server Management**: Create/delete/rename channels, set topics, create/assign/remove roles, get server/user info, list roles/channels, pin messages, make announcements, send custom embeds, and DM users. *(Admin Only)*
-- **Web & API Integrations**: Search Google and Reddit, fetch Cryptocurrency prices, get live weather, translate text, search GitHub users, check Minecraft servers, and search Urban Dictionary.
-- **Fun & Utilities**: Generate AI images natively, create interactive polls, roll dice, flip coins, pick random items, fetch jokes, cat facts, dog images, memes, trivia, and inspirational quotes.
-- **Memory Management**: The AI can persistently save (`set_memory`), retrieve (`get_memory`), and list (`list_memory`) information in its own memory slots to remember user preferences or server rules across sessions.
+### 💰 Economy System
+Track coins and manage a server-wide economy.
+- **Check Balance**: Use `/balance` to see your coins, ranking, and server top 3.
+- **Transaction History**: Use `/history` to review recent additions or deductions.
+- **Admin Controls**: Add or remove coins using `/add_money` and `/remove_money`.
 
-### 💰 Secure Economy System
-Manage your server's funds efficiently with a reliable economic ledger.
-- **Global Network Board**: See who the biggest contributors are.
-- **Secure Vaults**: Every user has a personal Rupee (₹) balance.
-- **Admin Adjustments**: Inject users with funds or deduct them to balance the ledger smoothly using `/add_money` and `/remove_money`.
+### 💳 UPI & QR Payments
+Save and look up user UPI IDs and QR code images.
+- **Save Details**: Admins can use `/upi set` to save a user's UPI ID and upload their QR code.
+- **Look Up Details**: Anyone can use `/upi get` to quickly look up payment information.
+- **Manage**: Admins can list or delete saved payment details with `/upi list` and `/upi delete`.
 
-### 💳 UPI & QR Storage System
-Store user UPI IDs securely in the unified database!
-- **QR Code Storage**: Upload representations of QR codes directly to the bot. Image buffers are translated into Base64 strings and stored strictly in the database, requiring zero local file management.
-- **Access Vault**: View saved user UPI information and QR code embeds effortlessly using the `/upi` suite.
+### 🎫 Support Ticket System
+Organized support channels for your server.
+- **Ticket Categories**: Create departments (Support, Questions, etc.) with `/category create`.
+- **Panels**: Post an interactive button panel in any channel using `/panel create`.
+- **Transcripts**: Automatically saves an HTML transcript when a ticket is closed with `/close`.
+- **User Management**: Add or remove members from tickets with interactive menus.
 
-### 📋 Structured Ticket System
-- **Support Departments**: Group tickets by purpose (e.g., Support, Bug Reports).
-- **Interactive Terminals**: Open secure comms with a single button click via `/panel create`.
-- **Network Management**: Add or remove users from support threads using a polite interface.
-- **Data Transcripts**: Automatically save an HTML archive of closed channels for your records using `discord-html-transcripts`.
+### ⏰ Reminders, Tasks & Cooldowns
+Keep track of time with automated pings and DMs.
+- **Reminders**: Schedule a reminder using `/remind` (for example, `10m`, `2h`, `1d`).
+- **Cooldowns**: Set a task cooldown for a member with `/cd`.
+- **Remove Cooldowns**: Admins can end an active cooldown early with `/remove_cd`.
+- **Task Ping**: Admins can assign a task using `/taskping user:@username task:<task>` (or `!taskping @username <task>`). The bot pings the user every 30 minutes until they reply in that channel.
 
-### ⏰ Reminder & Recharge System
-Never miss an operation with polite temporal pings and DMs!
-- **Scheduled Alarms**: Set active reminders for yourself or others (e.g., `10m`, `1h`) using `/remind`.
-- **Recharge (Cooldowns)**: Put users into "recharge" mode to manage chat overload using `/cd`.
-- **System Pings**: The bot sends a direct notification when the timer efficiently expires.
-
-### 🎨 Fun & Creativity
-- **Image Generation**: Use the `/imagine` slash command (or ask the AI natively) to generate high-quality AI images directly within Discord using advanced text-to-image models.
+### 🎨 Fun & Utilities
+- **AI Art**: Generate images from text prompts using `/imagine`.
+- **Send Text**: Admins can send a message through the bot using `/text`.
+- **Memory Slots**: Admins can save and retrieve custom messages with `/memory`.
 
 ---
 
 ## 🛠️ Setup Instructions
 
-### 1. Discord Portal Setup
-- Go to the [Discord Developer Portal](https://discord.com/developers/applications).
-- Create a new application and name it.
-- **Bot Tab**:
-    - Reset Token to get your bot token.
-    - Enable **Message Content Intent**, **Server Members Intent**, and **Presence Intent** (if needed).
-- **General Info**: Copy your Client ID.
+### 1. Discord Developer Portal
+1. Go to the [Discord Developer Portal](https://discord.com/developers/applications).
+2. Create an application and add a bot.
+3. Under the **Bot** tab, enable **Message Content Intent**, **Server Members Intent**, and **Presence Intent**.
+4. Copy your **Bot Token** and **Client ID**.
 
 ### 2. Configuration (`.env`)
 Create a `.env` file in the root directory:
 ```env
-DISCORD_TOKEN=your_token_here
+DISCORD_TOKEN=your_bot_token_here
 CLIENT_ID=your_client_id_here
-GUILD_ID=your_server_id_here  # Optional: For instant command updates!
-GROQ_API_KEY=gsk_your_groq_api_key_here # Required for Groq AI chat (https://console.groq.com)
+GUILD_ID=your_server_id_here  # Optional: For instant command registration on your server
+GROQ_API_KEY=your_groq_api_key_here # For AI chat features (https://console.groq.com)
 ```
 
-### 3. Requirements
-- Node.js (v16.11.0 or higher)
-- Dependencies: `npm install`
-
-### 4. Running the Bot
+### 3. Installation & Running
 ```bash
-# Register commands (Run this whenever you change commands)
+# Install dependencies
+npm install
+
+# Register slash commands
 npm run deploy
 
 # Start the bot
@@ -83,53 +77,39 @@ npm start
 
 ---
 
-## 📋 All Executable Protocols (Slash Commands)
+## 📋 Slash Commands List
 
-### ⚡ Temporal Commands
-| Protocol | Description |
+### ⏰ Reminders & Cooldowns
+| Command | Description |
 | :--- | :--- |
-| `/remind` | `time` `payload` `[node]` `[user]` - Set a temporal beacon! |
-| `/cd` | `user` `[duration]` - Put a user in cryosleep. |
-| `/remove_cd` | `user` - Manually abort cryosleep! (Admin Only) |
-| `/verify` | `[hash]` - Manually verify a secure link. (Admin Only) |
-| `Verify Link` | (Context Menu) Right-click a datastream to verify. (Admin Only) |
+| `/remind` | Set a reminder for yourself or someone else |
+| `/cd` | Set a cooldown timer for a user |
+| `/remove_cd` | Remove a user's active cooldown (Admin Only) |
+| `/verify` | Manually verify a link in the channel (Admin Only) |
+| `Verify Link` | (Right-click message context menu) Verify a link (Admin Only) |
 
-### 💰 Secure Ledger (Credits & UPI)
-| Protocol | Description |
+### 💰 Economy & UPI
+| Command | Description |
 | :--- | :--- |
-| `/balance` | `[user]` - Access a secure data vault. |
-| `/add_money` | `user` `amount` - Inject credits into a user's vault! (Admin Only) |
-| `/remove_money` | `user` `amount` - Deduct credits. (Admin Only) |
-| `/upi` | `set`/`get`/`delete`/`list` - Manage user UPI and Base64 QR storage records. |
+| `/balance` | Check your own or another user's balance and ranking |
+| `/add_money` | Add money to a user's balance (Admin Only) |
+| `/remove_money` | Remove money from a user's balance (Admin Only) |
+| `/history` | View recent transaction history |
+| `/upi` | Save, look up, list, or delete UPI details |
 
-### 🎫 Network Channels (Tickets) (Admin Only)
-| Protocol | Description |
+### 🎫 Tickets (Admin Only)
+| Command | Description |
 | :--- | :--- |
-| `/setup` | Configure log and transcript databanks. |
-| `/category create` | Create a comms node with its own protocols. |
-| `/category list` | List all active nodes and UUIDs. |
-| `/category delete` | `id` - Defrag a comms node. |
-| `/panel create` | Deploy a terminal panel for users to open comms. |
-| `/close` | Terminate the connection and generate an encrypted transcript. |
+| `/setup` | Configure ticket log and transcript channels |
+| `/category create` | Create a new ticket category |
+| `/category list` | View all ticket categories |
+| `/category delete` | Delete a ticket category |
+| `/panel create` | Send a ticket panel with buttons to a channel |
+| `/close` | Close the current ticket and save a transcript |
 
-### 🎨 Fun & Utilities
-| Protocol | Description |
+### 🎨 Fun & Tools
+| Command | Description |
 | :--- | :--- |
-| `/imagine` | `prompt` - Generate a custom AI image. |
-| `/text` | (Admin Only) Protocol for handling text operations. |
-| `/memory` | `view`/`clear` - Manage the AI's internal memory banks. (Admin Only) |
-
----
-
-## 🗂️ Project Directory Structure
-- `index.js`: Main operation core and socket routing.
-- `deploy-commands.js`: Protocol deployment script.
-- `commands/`: Modular command handlers grouped by category (`admin`, `economy`, `fun`, `reminders`, `tickets`).
-- `events/`: Event handlers, including `messageCreate.js` where the core AI tool execution logic happens.
-- `utils/`: Neural logic modules, including the extensive `aiTools.js` and `database.js`.
-- `data/`: Stores the unified `blossom.db` (SQLite) containing all user, economy, and AI memory records.
-- `assets/`: Ultra-luxury 8K renders (Obsidian private banking cards, 24K gold Rupee bullion, and obsidian chronometers) embedded in embed interfaces.
-
----
-
-Signed and sealed with distinction and executive grace. ◈ ⚜️
+| `/imagine` | Generate an image from a prompt |
+| `/text` | Send a message as the bot (Admin Only) |
+| `/memory` | Save, get, or list memory slot messages (Admin Only) |

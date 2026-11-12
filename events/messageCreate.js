@@ -7,6 +7,8 @@ const { PermissionFlagsBits, EmbedBuilder } = require("discord.js");
 const db = require("../utils/database");
 const { REDDIT_REGEX, LOADING_EMOJI, CHECK_EMOJI } = require("../commands/admin/verify");
 const { aiToolDefinitions, executeTool } = require("../utils/aiTools");
+const { cancelTaskPingTimeout } = require("../utils/timerManager");
+const { taskCompletedEmbed } = require("../utils/embeds");
 
 const URL_REGEX = /https?:\/\/[^\s]+/;
 
@@ -171,6 +173,18 @@ function getProviderConfig(provider) {
 module.exports = async function onMessageCreate(message) {
   if (message.author.bot) return;
 
+  // ----- CHECK TASK PINGS -----
+  // If this user has active task ping(s) in this channel, any response resolves/stops them.
+  const activeTaskPings = db.getActiveTaskPingsForUserInChannel(message.author.id, message.channel.id);
+  if (activeTaskPings && activeTaskPings.length > 0) {
+    const removedTasks = db.removeTaskPingsByUserAndChannel(message.author.id, message.channel.id);
+    for (const taskItem of removedTasks) {
+      cancelTaskPingTimeout(taskItem.id);
+    }
+    const completionEmbed = taskCompletedEmbed(message.author, removedTasks);
+    message.reply({ embeds: [completionEmbed] }).catch(() => {});
+  }
+
   // ----- PREFIX COMMAND HANDLER -----
   const prefix = "!";
   if (message.content.startsWith(prefix)) {
@@ -207,7 +221,7 @@ module.exports = async function onMessageCreate(message) {
             return null;
           },
           getString: (name) => {
-            if (["prompt", "message", "description", "title"].includes(name)) {
+            if (["prompt", "message", "description", "title", "task"].includes(name)) {
               const res = args.join(" ");
               args.length = 0;
               return res || null;
@@ -261,7 +275,7 @@ module.exports = async function onMessageCreate(message) {
       } catch (error) {
         console.error(`[Prefix Error] Error executing ${commandName}:`, error);
         message
-          .reply("Oops! There was an error executing that command. 🧊")
+          .reply("There was an error running that command. Please try again.")
           .catch(() => {});
         return;
       }
@@ -330,7 +344,7 @@ module.exports = async function onMessageCreate(message) {
   if (!hasAiKey) {
     return message
       .reply(
-        "I'm not configured with an AI API key! Please set `GROQ_API_KEY` (or another AI provider key) in your `.env` file.",
+        "I'm not set up for AI chat yet. An admin needs to add an API key (`GROQ_API_KEY` or similar) to the `.env` file.",
       )
       .catch(() => {});
   }
@@ -340,7 +354,7 @@ module.exports = async function onMessageCreate(message) {
     .trim();
 
   if (!prompt) {
-    return message.reply("Hello! How can I help you today? 🌸").catch(() => {});
+    return message.reply("Hey! What can I help you with? 👋").catch(() => {});
   }
 
   // Signal bot is busy → DND
@@ -423,8 +437,8 @@ module.exports = async function onMessageCreate(message) {
         const messages = [
           {
             role: "system",
-            content: `You are Oakawol Bot, a helpful Discord server assistant. Always use the tools provided — never refuse an action if a matching tool exists.
-IMPORTANT: You HAVE real-time web search capabilities via tools (search_google, fetch_webpage, search_reddit, get_weather, get_crypto_price). If the user asks for current events, news, recent updates, live info, or anything beyond your training data cutoff, NEVER claim you cannot fetch live news or claim your knowledge cutoff prevents you. ALWAYS call search_google or fetch_webpage to get live real-time information!${memoryPrompt}
+            content: `You are Oakawol Bot, a helpful Discord server assistant. Write in simple, clear, and friendly English. Use the tools provided — never refuse an action if a matching tool exists.
+IMPORTANT: You HAVE real-time web search capabilities via tools (search_google, fetch_webpage, search_reddit, get_weather, get_crypto_price). If the user asks for current events, news, recent updates, or live info, ALWAYS call search_google or fetch_webpage to get real-time data!${memoryPrompt}
 
 Available bot commands (use via cmd_ tools):
 - cmd_add_money / cmd_remove_money: Manage a user's server balance. Pass args as "<number> <userId>"
@@ -435,7 +449,7 @@ Available bot commands (use via cmd_ tools):
 
 User messages are prefixed with their username (e.g. Username: message) so you know who is speaking.
 Always extract the user's Discord ID from mentions like <@123456789> and include it in args.
-Reply concisely and friendly. Do not include any reasoning or thinking in your response.`,
+Reply concisely, simply, and politely. Do not include any reasoning or thinking in your response.`,
           },
           ...conversationHistory.slice(-4),
           { role: "user", content: `${message.author.username}: ${prompt}` },
@@ -645,10 +659,10 @@ Reply concisely and friendly. Do not include any reasoning or thinking in your r
                   if (commandReplied) executedSilently = true;
                   toolResult = commandReplied
                     ? "SYSTEM NOTE: Command executed and shown to the user. Just briefly acknowledge it."
-                    : "I executed the command for you! 🌸";
+                    : "I have executed the command for you.";
                 } catch (err) {
                   console.error(`[AI Cmd Error]`, err);
-                  toolResult = `Error executing internal command! 🧊`;
+                  toolResult = `There was an error executing that command.`;
                 }
               } else {
                 toolResult = "Command not found.";
@@ -673,7 +687,7 @@ Reply concisely and friendly. Do not include any reasoning or thinking in your r
 
           // Compact messages payload for 2nd API call to consume minimal tokens (<500 tokens)
           const secondMessagesPayload = [
-            { role: "system", content: "Summarize the tool output into a friendly, concise response for the user. Do not mention system tools or internal formatting." },
+            { role: "system", content: "Summarize the tool output into a friendly, simple English response for the user. Keep it concise. Do not mention system tools or internal formatting." },
             { role: "user", content: prompt },
             { role: "assistant", content: `Tool Output: ${secondReply || "Action completed successfully."}` }
           ];
