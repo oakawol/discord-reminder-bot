@@ -101,7 +101,7 @@ module.exports = {
           { name: "💳  UPI ID",  value: `\`${record.upiId}\``,                                inline: true },
           { name: "🗓️  Saved",   value: `<t:${Math.floor(record.savedAt / 1000)}:R>`,         inline: true }
         )
-        .setFooter({ text: `Copy the UPI ID above to pay  ·  ${footerQuip()}` })
+        .setFooter({ text: footerQuip("Tap UPI ID to copy") })
         .setTimestamp();
 
       const files = [];
@@ -187,7 +187,7 @@ module.exports = {
             .setColor(C.primary)
             .setTitle("💳  UPI records")
             .setDescription(`${lines}\n\n*${divider()}*`)
-            .setFooter({ text: `${records.length} record(s)  ·  ${footerQuip()}` })
+            .setFooter({ text: footerQuip(`${records.length} record(s)`) })
             .setTimestamp(),
         ],
         ephemeral: true,

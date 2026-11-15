@@ -1,0 +1,226 @@
+/**
+ * utils/footerMessages.js
+ * Centralized collection of friendly, casual bot personality footer messages.
+ * 180 unique messages across four balanced styles:
+ * 1. Simple and friendly
+ * 2. Fun and casual
+ * 3. Bot personality
+ * 4. Friendly and welcoming
+ *
+ * Randomly selects messages without repeating the same message twice in a row globally.
+ */
+
+const FOOTER_MESSAGES = [
+  // ── Style 1: Simple and Friendly ──────────────────────────────────────────
+  "Here to help you",
+  "Made to make things easy",
+  "Your little helper",
+  "Always ready to help",
+  "Happy to help",
+  "Right here whenever you need me",
+  "Glad I could help with this",
+  "Here for whatever you need",
+  "Ready for the next one",
+  "Always at your service",
+  "Keeping things simple for you",
+  "At your side all day",
+  "Here to save you time",
+  "Happy to lend a hand",
+  "Anything else you need, just ask",
+  "Glad to be of help",
+  "Helping you is what I do best",
+  "Here to make your day smoother",
+  "Just let me know what you need",
+  "Standing by to help",
+  "Count on me anytime",
+  "Hope that made things easier",
+  "Always here for you",
+  "Happy to assist",
+  "Here whenever you call",
+  "Making server life easier",
+  "Here to take care of the details",
+  "Helping out one command at a time",
+  "Glad to assist you today",
+  "Right by your side",
+  "Your friendly server assistant",
+  "Doing my best to help",
+  "Here to get things done",
+  "Always happy to lend a hand",
+  "Here to help you out",
+  "Just a command away",
+  "Ready when you are",
+  "Always glad to help you",
+  "Keeping things easy and clean",
+  "Happy to help you with that",
+  "Take it easy, I am here",
+  "Here to help make things simple",
+  "Hope this helped you out",
+  "Always ready for your commands",
+  "Here for you, always",
+
+  // ── Style 2: Fun and Casual ───────────────────────────────────────────────
+  "Look who is back",
+  "Another day, another command",
+  "You know the drill",
+  "That was easy",
+  "What are we doing next",
+  "Easy peasy",
+  "Handled that in a blink",
+  "Done and dusted",
+  "That did the trick",
+  "Back for more, I see",
+  "Fast and smooth, just how you like it",
+  "Consider it done",
+  "On to the next thing",
+  "Nicely done",
+  "That was quick, right?",
+  "Back at it again",
+  "You ask, I deliver",
+  "Smooth like butter",
+  "Another one off the list",
+  "Knocked that one out",
+  "Boom, all done",
+  "Keep the commands coming",
+  "Piece of cake",
+  "Sorted that out for you",
+  "Good to see you again",
+  "Ready for whatever is next",
+  "That was fun",
+  "Clean and quick",
+  "We make a good team",
+  "Let me know when you need more",
+  "Nailed it",
+  "And just like that, it is done",
+  "All set and good to go",
+  "Got that sorted in no time",
+  "Quick and easy",
+  "Back so soon? Love it",
+  "Always fun working with you",
+  "That was a breeze",
+  "Another task checked off",
+  "You got it",
+  "Just like magic",
+  "That went smoothly",
+  "What else is on your mind?",
+  "Simple as that",
+  "Another job well done",
+
+  // ── Style 3: Bot Personality ─────────────────────────────────────────────
+  "Just a bot doing bot things",
+  "Your commands keep me busy",
+  "Here when you need me",
+  "I got that for you",
+  "Powered by code and coffee",
+  "Beep boop, command finished",
+  "Just your friendly neighbourhood bot",
+  "Running on 100% electricity",
+  "Working hard so you do not have to",
+  "Bots never sleep anyway",
+  "Certified good bot",
+  "Doing my bot best",
+  "Keeping my gears turning",
+  "Just doing my little bot job",
+  "Powered by circuits and good vibes",
+  "Always on, never tired",
+  "Processing your wish right now",
+  "All in a day's work for a bot",
+  "Living inside your server",
+  "Your 24/7 digital assistant",
+  "Beep boop, ready for more",
+  "My circuits are happy to help",
+  "Fast algorithms at your service",
+  "Not a coffee drinker, but code works",
+  "Zero bugs, pure effort",
+  "Doing robot things with a smile",
+  "Just warming up my processors",
+  "Fast bytes, happy users",
+  "Your server runs better with me around",
+  "Just doing my daily rounds",
+  "One bot, endless possibilities",
+  "My server fans are spinning happily",
+  "Always awake, always ready",
+  "Serving commands round the clock",
+  "Bot life is pretty good",
+  "A little code goes a long way",
+  "Happy little bot at work",
+  "Kept my circuits cool for this one",
+  "Another clean run through the wires",
+  "Your reliable pocket bot",
+  "Just keeping the server humming",
+  "Built to serve, built to last",
+  "Taking care of business in the background",
+  "Silicon mind, friendly heart",
+  "Ready to compute again",
+
+  // ── Style 4: Friendly and Welcoming ───────────────────────────────────────
+  "Thanks for using Oakawol",
+  "Hope you like this",
+  "Have a nice day",
+  "See you in the next command",
+  "Always happy to help",
+  "Wishing you a great day ahead",
+  "Thanks for stopping by",
+  "Hope you are having a good one",
+  "Glad to have you around",
+  "Enjoy the rest of your day",
+  "Thanks for hanging out with me",
+  "Take good care of yourself",
+  "Glad we could get this done",
+  "Wishing you a wonderful time",
+  "Hope everything is going well for you",
+  "Always a pleasure to help",
+  "Thanks for being awesome",
+  "Have a peaceful day",
+  "You are always welcome here",
+  "Hope you smiled today",
+  "Glad to be on this server with you",
+  "Take it easy today",
+  "Wishing you smooth sailing",
+  "Thank you for trusting me",
+  "Have fun on the server",
+  "Nice chatting with you",
+  "Hope this brightened your day a bit",
+  "Thank you for choosing Oakawol",
+  "May your day be light and easy",
+  "Always great to hear from you",
+  "Catch you around the server",
+  "Stay awesome",
+  "Have an amazing rest of the day",
+  "Looking forward to your next command",
+  "Always here when you drop by",
+  "Glad you stopped by",
+  "Hope your day goes well",
+  "Nice working with you today",
+  "You made my circuits smile",
+  "Here anytime you need a hand",
+  "Always here to brighten your day",
+  "Until the next command",
+  "Have a wonderful day ahead",
+  "Thanks for being here",
+  "Wishing you the very best",
+];
+
+let lastFooterIndex = -1;
+
+/**
+ * Randomly picks a message from FOOTER_MESSAGES.
+ * Guarantees that the same message will not be selected twice in a row globally.
+ */
+function getRandomFooterMessage() {
+  if (FOOTER_MESSAGES.length <= 1) {
+    return FOOTER_MESSAGES[0] || "Your little helper";
+  }
+
+  let index;
+  do {
+    index = Math.floor(Math.random() * FOOTER_MESSAGES.length);
+  } while (index === lastFooterIndex);
+
+  lastFooterIndex = index;
+  return FOOTER_MESSAGES[index];
+}
+
+module.exports = {
+  FOOTER_MESSAGES,
+  getRandomFooterMessage,
+};

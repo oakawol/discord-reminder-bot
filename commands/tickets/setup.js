@@ -28,7 +28,7 @@ module.exports = {
         { name: "📝  Log channel",          value: `${logChannel}`,        inline: true },
         { name: "📄  Transcripts channel",  value: `${transcriptChannel}`, inline: true }
       )
-      .setFooter({ text: "Next: use /category create to add ticket types." })
+      .setFooter({ text: footerQuip("Next: use /category create to add ticket types") })
       .setTimestamp();
 
     await interaction.reply({ embeds: [embed], ephemeral: true });

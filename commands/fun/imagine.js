@@ -2,7 +2,7 @@
  * commands/fun/imagine.js
  */
 const { EmbedBuilder, AttachmentBuilder } = require("discord.js");
-const { C, errorEmbed } = require("../../utils/embeds");
+const { C, errorEmbed, footerQuip } = require("../../utils/embeds");
 
 module.exports = {
   name: "imagine",
@@ -35,7 +35,7 @@ module.exports = {
         .setTitle("🎨  Here's your image")
         .setDescription(`> *${prompt}*`)
         .setImage("attachment://imagine.jpeg")
-        .setFooter({ text: "Made with Pollinations AI" })
+        .setFooter({ text: footerQuip("Made with Pollinations AI") })
         .setTimestamp();
 
       const payload = { embeds: [embed], files: [attachment] };

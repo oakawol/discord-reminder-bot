@@ -138,6 +138,7 @@ async function closePrompt(interaction) {
       "Are you sure? A chat transcript will be saved and the channel will be deleted.\n\n" +
       "*This can't be undone.*"
     )
+    .setFooter({ text: footerQuip("This action cannot be undone") })
     .setTimestamp();
 
   const row = new ActionRowBuilder().addComponents(
@@ -231,7 +232,7 @@ async function manageUsers(interaction) {
       "Deselecting a member will **remove** their access.\n\n" +
       `*${divider()}*`
     )
-    .setFooter({ text: "Changes take effect right away." })
+    .setFooter({ text: footerQuip("Changes take effect right away") })
     .setTimestamp();
 
   await interaction.reply({

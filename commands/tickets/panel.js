@@ -3,7 +3,7 @@
  */
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 const db = require("../../utils/database");
-const { C, errorEmbed, successEmbed } = require("../../utils/embeds");
+const { C, errorEmbed, successEmbed, footerQuip } = require("../../utils/embeds");
 
 module.exports = {
   name: "panel",
@@ -31,7 +31,7 @@ module.exports = {
           `${description}\n\n` +
           `Pick a category below to open a support ticket.`
         )
-        .setFooter({ text: "Oakawol Bot  ·  Ticket support" })
+        .setFooter({ text: footerQuip("Ticket support") })
         .setTimestamp();
 
       // Max 5 buttons per row

@@ -50,16 +50,19 @@ function divider() {
   return "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄";
 }
 
-const FOOTER_LINES = [
-  "Oakawol Bot  •  reminders · economy · support",
-  "/remind to set a reminder  —  /balance for coins",
-  "Oakawol Bot  •  fast and easy to use",
-  "Need help? Ask a staff member.",
-  "Have a good one!",
-];
+const { getRandomFooterMessage } = require("./footerMessages");
 
-function footerQuip() {
-  return FOOTER_LINES[Math.floor(Math.random() * FOOTER_LINES.length)];
+/**
+ * Generates dynamic footer text with random personality message
+ * while preserving branding and category info:
+ * "<Personality message> • reminders • economy • support"
+ */
+function footerQuip(extraText = null) {
+  const quote = getRandomFooterMessage();
+  if (extraText) {
+    return `${quote} • ${extraText} • reminders • economy • support`;
+  }
+  return `${quote} • reminders • economy • support`;
 }
 
 /** Base embed — shared defaults */
@@ -77,7 +80,7 @@ function errorEmbed(content) {
     .setColor(C.danger)
     .setTitle("Something went wrong")
     .setDescription(`${content}`)
-    .setFooter({ text: "Oakawol Bot" })
+    .setFooter({ text: footerQuip() })
     .setTimestamp();
 }
 
@@ -129,7 +132,7 @@ function reminderFiredEmbed(message, initiatorTag) {
       .setTitle("⏰  Time's up — here's your reminder")
       .setThumbnail("attachment://reminder.png")
       .setDescription(`> **${message}**`)
-      .setFooter({ text: `Set by ${initiatorTag}` })
+      .setFooter({ text: footerQuip(`Set by ${initiatorTag}`) })
       .setTimestamp(),
   };
 }
@@ -223,7 +226,7 @@ function balanceEmbed(client, targetUser, balance, rank, leaderboardStr, totalEc
         { name: "🏅  Tier",          value: `\`${tier.icon} ${tier.name}\``,               inline: true },
         { name: "📋  Recent moves",  value: history,                                       inline: false }
       )
-      .setFooter({ text: `Server total: ₹${totalEconomy.toLocaleString()}  ·  ${footerQuip()}` })
+      .setFooter({ text: footerQuip(`Server total: ₹${totalEconomy.toLocaleString()}`) })
       .setTimestamp(),
   };
 }
@@ -330,7 +333,7 @@ function ticketWelcomeEmbed(user, count, category, answers) {
       { name: "📁  Category",   value: `${category.emoji} ${category.name}`, inline: true },
       { name: "👤  Opened by",  value: `${user}`,                            inline: true }
     )
-    .setFooter({ text: "Oakawol Bot  ·  Ticket support" })
+    .setFooter({ text: footerQuip("Ticket support") })
     .setTimestamp();
 
   const keys = Object.keys(answers || {});
@@ -383,7 +386,7 @@ function taskPingEmbed(targetUser, task, initiatorId) {
       `📋 **Task:**\n> ${task}\n\n` +
       `Reply in this channel once done and the pings will stop.`
     )
-    .setFooter({ text: "Pings every 30 min · reply here to stop" })
+    .setFooter({ text: footerQuip("Pings every 30 min · reply here to stop") })
     .setTimestamp();
 }
 
@@ -410,6 +413,7 @@ module.exports = {
   asset,
   divider,
   footerQuip,
+  getRandomFooterMessage,
   base,
   // Generic
   errorEmbed,
