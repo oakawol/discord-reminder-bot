@@ -479,6 +479,13 @@ module.exports = async function onMessageCreate(message) {
       ({ provider }) => !!getProviderConfig(provider).key,
     );
 
+    const isUserAdmin = Boolean(
+      message.member && (
+        message.member.permissions.has(PermissionFlagsBits.Administrator) ||
+        (message.guild && db.getGuildConfig(message.guild.id)?.adminRoleId && message.member.roles.cache.has(db.getGuildConfig(message.guild.id).adminRoleId))
+      )
+    );
+
     for (const { provider, model, supportsTools } of availableModels) {
       const { url: apiUrl, key: apiKey } = getProviderConfig(provider);
       try {
@@ -487,9 +494,10 @@ module.exports = async function onMessageCreate(message) {
             role: "system",
             content: `You are Oakawol Bot, an intelligent, highly capable Discord server assistant powered by advanced reasoning. Write in simple, clear, and friendly English. Use the tools provided — never refuse an action if a matching tool exists.
 
-ADMINISTRATOR PRIVILEGES & SERVER CONTROL:
-- You have FULL Administrator permissions! You are authorized to manage server economy (giving/removing coins), user cooldowns, task pings, reminders, text broadcasts, and moderation (timeouts, kicks, bans).
-- When asked to perform admin tasks, execute them using your cmd_ tools or moderation tools with confidence.
+USER PERMISSIONS & ACCESS CONTROL:
+- Current user: @${message.author.username} (Role: ${isUserAdmin ? "ADMINISTRATOR" : "REGULAR MEMBER"}).
+- Regular members CANNOT use admin actions (such as adding/removing coins, timeout/ban/kick, server configuration). If a regular member asks you to add money to their balance or moderate other users, politely tell them that only server administrators can perform that action.
+- Only administrators are authorized to use admin tools and commands.
 
 REAL-TIME DATA & EXTERNAL APIS:
 - Open-Meteo Weather: Query live worldwide weather with 'get_weather'.
@@ -505,14 +513,14 @@ MEMORY & PERSONALIZATION:
 - If the user shares personal details, hobbies, likes, dislikes, or instructions (e.g. "I love cats", "I'm learning JavaScript"), call 'remember_fact' with scope 'user'.
 - Always address the user naturally by their preferred name whenever known.
 
-Available bot commands (use via cmd_ tools with full Admin rights):
-- cmd_add_money / cmd_remove_money: Manage a user's server balance. Pass args as "<number> <userId>"
+Available bot commands (use via cmd_ tools):
+- cmd_add_money / cmd_remove_money: Manage a user's server balance (Admin only). Pass args as "<number> <userId>"
 - cmd_balance: View a user's balance. Pass args as "<userId>"
 - cmd_history: View a user's transaction history. Pass args as "<userId>"
-- cmd_taskping: Assign a task and ping user every 30m until done. Pass args as "<userId> <task description>"
-- cmd_cd / cmd_remove_cd: Put user on cooldown or remove cooldown. Pass args as "<userId> <time>"
-- cmd_text: Send a message in channel as the bot. Pass args as "<message>"
-- cmd_verify: Verify if a link is working.
+- cmd_taskping: Assign a task and ping user every 30m until done (Admin only). Pass args as "<userId> <task description>"
+- cmd_cd / cmd_remove_cd: Check or manage cooldowns. Pass args as "<userId> <time>"
+- cmd_text: Send a message in channel as the bot (Admin only). Pass args as "<message>"
+- cmd_verify: Verify if a link is working (Admin only).
 - cmd_imagine: Create AI art. Pass args as the image description.
 - cmd_remind: Schedule a reminder. Pass args as "<duration> <note>" (e.g. "10m check oven")
 
@@ -603,7 +611,7 @@ Reply concisely, simply, and politely. Do not include any reasoning or thinking 
                   client: message.client,
                   user: message.author,
                   member: message.member,
-                  memberPermissions: new PermissionsBitField(PermissionFlagsBits.Administrator),
+                  memberPermissions: message.member?.permissions || null,
                   guild: message.guild,
                   guildId: message.guild?.id || null,
                   channel: message.channel,
