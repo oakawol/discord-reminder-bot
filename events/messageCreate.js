@@ -133,12 +133,12 @@ async function verifyLinkStatus(url) {
 
 // Provider configurations and failover model hierarchy
 const AI_MODELS = [
-  // Primary High-Intelligence: Google Gemini API (Most stable production models first)
-  { provider: "gemini",       model: process.env.GEMINI_MODEL || "gemini-2.5-flash", supportsTools: true },
+  // Primary High-Intelligence: Google Gemini API (Gemini 3.5 Flash Lite default)
+  { provider: "gemini",       model: process.env.GEMINI_MODEL || "gemini-3.5-flash-lite", supportsTools: true },
+  { provider: "gemini",       model: "gemini-3.5-flash-lite",            supportsTools: true },
   { provider: "gemini",       model: "gemini-2.5-flash",                 supportsTools: true },
   { provider: "gemini",       model: "gemini-2.0-flash",                 supportsTools: true },
   { provider: "gemini",       model: "gemini-2.5-pro",                   supportsTools: true },
-  { provider: "gemini",       model: "gemini-3.5-flash-lite",            supportsTools: true },
   // High-Speed: Groq (ultra-fast, active production models with high TPM limits)
   { provider: "groq",         model: "qwen/qwen3.6-27b",                 supportsTools: true },
   { provider: "groq",         model: "openai/gpt-oss-120b",              supportsTools: true },
