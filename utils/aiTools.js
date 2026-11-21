@@ -171,6 +171,20 @@ const aiToolDefinitions = [
     {
         type: 'function',
         function: {
+            name: 'tavily_search',
+            description: 'Advanced AI research & web search engine powered by Tavily. Returns direct answers, factual summaries, and clean extracted article snippets for any question, current event, or topic.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    query: { type: 'string', description: 'The comprehensive research or search query to look up.' }
+                },
+                required: ['query']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
             name: 'search_google',
             description: 'Searches Google, news feeds, and the live web for real-time information, articles, and current events. ALWAYS use this tool whenever the user asks for real-time news, current events, recent updates, or facts beyond your training cutoff.',
             parameters: {
@@ -953,8 +967,73 @@ async function executeTool(tName, args, message) {
                 return `Here is the information you requested!`;
             }
             // WEB TOOLS
+            case 'tavily_search': {
+                const apiKey = process.env.TAVILY_API_KEY;
+                if (!apiKey) {
+                    return `Tavily API key is not configured. Please set TAVILY_API_KEY in the .env file. Falling back to Google search.`;
+                }
+                try {
+                    const response = await fetch('https://api.tavily.com/search', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            api_key: apiKey,
+                            query: args.query,
+                            search_depth: 'basic',
+                            include_answer: true,
+                            max_results: 5,
+                        })
+                    });
+                    if (!response.ok) {
+                        const err = await response.text();
+                        return `Tavily search returned status ${response.status}: ${err}`;
+                    }
+                    const data = await response.json();
+                    let out = `🔎 **Tavily Intelligence for "${args.query}":**\n\n`;
+                    if (data.answer) {
+                        out += `**AI Summary:** ${data.answer}\n\n`;
+                    }
+                    if (data.results && data.results.length > 0) {
+                        out += data.results.map((r, i) => `**${i + 1}. [${r.title}](${r.url})**\n${r.content}`).join('\n\n');
+                    } else {
+                        out += `No results found.`;
+                    }
+                    return out;
+                } catch (err) {
+                    console.warn('[Tavily Error]', err.message);
+                    return `Tavily search failed: ${err.message}`;
+                }
+            }
             case 'search_google': {
                 const query = args.query;
+
+                // Priority: If Tavily API Key is present, leverage Tavily first for high-quality structured AI research
+                if (process.env.TAVILY_API_KEY) {
+                    try {
+                        const tavilyRes = await fetch('https://api.tavily.com/search', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                api_key: process.env.TAVILY_API_KEY,
+                                query: query,
+                                search_depth: 'basic',
+                                include_answer: true,
+                                max_results: 4,
+                            })
+                        });
+                        if (tavilyRes.ok) {
+                            const data = await tavilyRes.json();
+                            let out = `🔎 **Web Search Results for "${query}":**\n\n`;
+                            if (data.answer) out += `**Summary:** ${data.answer}\n\n`;
+                            if (data.results && data.results.length > 0) {
+                                out += data.results.map((r, i) => `**${i + 1}. [${r.title}](${r.url})**\n${r.content}`).join('\n\n');
+                                return out;
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('[Tavily Search Fallback]', e.message);
+                    }
+                }
                 
                 // 1. Google News RSS Feed (Fastest and most accurate for news & current events)
                 if (/news|latest|today|recent|headlines|breaking|update|sports|tech|business/i.test(query)) {
