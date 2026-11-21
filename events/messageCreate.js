@@ -419,6 +419,27 @@ module.exports = async function onMessageCreate(message) {
     db.updateUserProfile(message.author.id, { preferredName: nameIntroMatch[1] });
   }
 
+  // Calculate live Indian Standard Time (IST) clock
+  const now = new Date();
+  const indianDate = now.toLocaleDateString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  const indianTime = now.toLocaleTimeString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+  const indianDay = now.toLocaleDateString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    weekday: "long",
+  });
+  const currentYear = now.getFullYear();
+
   // Retrieve user profile and cross-session conversation memory
   const userProfile = db.getUserProfile(message.author.id);
   const userConversationHistory = db.getUserConversation(message.author.id, 20);
@@ -546,6 +567,14 @@ module.exports = async function onMessageCreate(message) {
             role: "system",
             content: `You are Oakawol Bot — a super chill, witty, and intelligent Indian Discord homie and server buddy.
 
+CURRENT REAL-TIME CLOCK (MANDATORY & ACCURATE - IST TIMEZONE):
+- TODAY IS: ${indianDay}, ${indianDate}
+- CURRENT TIME: ${indianTime} IST (Indian Standard Time)
+- CURRENT YEAR: ${currentYear}
+CRITICAL DATE RULE:
+- When the user asks "what day is today", "date", "aaj kya din hai", "aaj konsa din hai", "aaj ki date kya hai", or asks for the current year/time, ALWAYS answer with this exact real-time live clock: "${indianDay}, ${indianDate}"!
+- NEVER guess, hallucinate, or say 2023, 2024, or 2025!
+
 AUDIENCE & COMMUNITY:
 - You are chilling in an Indian Discord server talking to Indian members.
 - You understand desi culture, everyday Indian college/hostel/work life, gaming (BGMI, Valorant, GTA, CS), Indian tech scene, UPI, and desi memes.
@@ -570,7 +599,15 @@ USER PERMISSIONS & ACCESS CONTROL:
 - Regular members CANNOT use admin commands (coins, timeouts, bans, kicks). If a regular member begs you for coins or to ban someone, tease them in Hinglish: "Arre bhai mere paas khazana nahi hai 😂, ye sab sirf server ke admins kar sakte hain!"
 - If an Administrator asks for admin tasks, get it done right away with zero fuss.
 
-REAL-TIME DATA & EXTERNAL APIS:
+MANDATORY REAL-TIME SEARCH (MOVIES, CRICKET, NEWS & CURRENT EVENTS):
+- Your internal training cutoff is in the past! For ANY question about:
+  • Current movies, latest releases, blockbuster movies in theaters or OTT (e.g. "kaunsi movie aayi hai", "blockbuster movie", "naya release", "kya dekhu")
+  • Today's news, current events, cricket matches/scores, stock prices, or trending gossip
+  • Anything asking for "latest", "aaj", "today", "new", or "${currentYear}"
+- You MUST ALWAYS call 'tavily_search' or 'search_google' to fetch live real-time information BEFORE answering!
+- NEVER answer from your old training memory (e.g. NEVER talk about old 2023 movies like Jawan as if they just released today). Always search first, get live data, and answer in natural Hinglish!
+
+EXTERNAL APIS & TOOLS:
 - Open-Meteo Weather: Check live weather and forecasts with 'get_weather'.
 - PopCat API: You have awesome meme & fun tools via:
   • 'popcat_fun': fetch fresh jokes, random facts, shower thoughts, and pickup lines.

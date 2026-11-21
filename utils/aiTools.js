@@ -967,50 +967,14 @@ async function executeTool(tName, args, message) {
                 return `Here is the information you requested!`;
             }
             // WEB TOOLS
-            case 'tavily_search': {
-                const apiKey = process.env.TAVILY_API_KEY;
-                if (!apiKey) {
-                    return `Tavily API key is not configured. Please set TAVILY_API_KEY in the .env file. Falling back to Google search.`;
-                }
-                try {
-                    const response = await fetch('https://api.tavily.com/search', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            api_key: apiKey,
-                            query: args.query,
-                            search_depth: 'basic',
-                            include_answer: true,
-                            max_results: 5,
-                        })
-                    });
-                    if (!response.ok) {
-                        const err = await response.text();
-                        return `Tavily search returned status ${response.status}: ${err}`;
-                    }
-                    const data = await response.json();
-                    let out = `🔎 **Tavily Intelligence for "${args.query}":**\n\n`;
-                    if (data.answer) {
-                        out += `**AI Summary:** ${data.answer}\n\n`;
-                    }
-                    if (data.results && data.results.length > 0) {
-                        out += data.results.map((r, i) => `**${i + 1}. [${r.title}](${r.url})**\n${r.content}`).join('\n\n');
-                    } else {
-                        out += `No results found.`;
-                    }
-                    return out;
-                } catch (err) {
-                    console.warn('[Tavily Error]', err.message);
-                    return `Tavily search failed: ${err.message}`;
-                }
-            }
+            case 'tavily_search':
             case 'search_google': {
                 const query = args.query;
-
-                // Priority: If Tavily API Key is present, leverage Tavily first for high-quality structured AI research
+                
+                // 1. Tavily AI Search (Highest quality structured intelligence if key is configured)
                 if (process.env.TAVILY_API_KEY) {
                     try {
-                        const tavilyRes = await fetch('https://api.tavily.com/search', {
+                        const response = await fetch('https://api.tavily.com/search', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
@@ -1018,52 +982,50 @@ async function executeTool(tName, args, message) {
                                 query: query,
                                 search_depth: 'basic',
                                 include_answer: true,
-                                max_results: 4,
+                                max_results: 5,
                             })
                         });
-                        if (tavilyRes.ok) {
-                            const data = await tavilyRes.json();
-                            let out = `🔎 **Web Search Results for "${query}":**\n\n`;
-                            if (data.answer) out += `**Summary:** ${data.answer}\n\n`;
+                        if (response.ok) {
+                            const data = await response.json();
+                            let out = `🔎 **Tavily Intelligence for "${query}":**\n\n`;
+                            if (data.answer) out += `**AI Summary:** ${data.answer}\n\n`;
                             if (data.results && data.results.length > 0) {
                                 out += data.results.map((r, i) => `**${i + 1}. [${r.title}](${r.url})**\n${r.content}`).join('\n\n');
                                 return out;
                             }
                         }
-                    } catch (e) {
-                        console.warn('[Tavily Search Fallback]', e.message);
+                    } catch (err) {
+                        console.warn('[Tavily Search Fallback]', err.message);
                     }
                 }
-                
-                // 1. Google News RSS Feed (Fastest and most accurate for news & current events)
-                if (/news|latest|today|recent|headlines|breaking|update|sports|tech|business/i.test(query)) {
-                    try {
-                        const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
-                        const res = await fetch(rssUrl);
-                        if (res.ok) {
-                            const xml = await res.text();
-                            const items = [];
-                            const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
-                            let match;
-                            while ((match = itemRegex.exec(xml)) !== null && items.length < 4) {
-                                const itemXml = match[1];
-                                const title = (itemXml.match(/<title>([\s\S]*?)<\/title>/i) || [])[1] || '';
-                                const link = (itemXml.match(/<link>([\s\S]*?)<\/link>/i) || [])[1] || '';
-                                const pubDate = (itemXml.match(/<pubDate>([\s\S]*?)<\/pubDate>/i) || [])[1] || '';
-                                if (title) {
-                                    const cleanTitle = title.replace(/<!\[CDATA\[(.*?)\]\]>/g, '$1').replace(/&amp;/g, '&');
-                                    items.push(`**${cleanTitle}** (${pubDate})\n<${link}>`);
-                                }
-                            }
-                            if (items.length > 0) {
-                                return `Here are the latest news headlines for "${query}":\n\n` + items.join('\n\n');
+
+                // 2. Google News Live Feed (India + World: movies, cinema, box office, cricket, politics, current events)
+                try {
+                    const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-IN&gl=IN&ceid=IN:en`;
+                    const res = await fetch(rssUrl);
+                    if (res.ok) {
+                        const xml = await res.text();
+                        const items = [];
+                        const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
+                        let match;
+                        while ((match = itemRegex.exec(xml)) !== null && items.length < 5) {
+                            const itemXml = match[1];
+                            const title = (itemXml.match(/<title>([\s\S]*?)<\/title>/i) || [])[1] || '';
+                            const link = (itemXml.match(/<link>([\s\S]*?)<\/link>/i) || [])[1] || '';
+                            const pubDate = (itemXml.match(/<pubDate>([\s\S]*?)<\/pubDate>/i) || [])[1] || '';
+                            if (title && !title.toLowerCase().startsWith('google news')) {
+                                const cleanTitle = title.replace(/<!\[CDATA\[(.*?)\]\]>/g, '$1').replace(/&amp;/g, '&');
+                                items.push(`• **${cleanTitle}** (${pubDate})\n<${link}>`);
                             }
                         }
-                    } catch (e) {
-                        console.warn("Google News RSS Search failed:", e.message);
+                        if (items.length > 0) {
+                            return `Live search & news results for "${query}":\n\n` + items.join('\n\n');
+                        }
                     }
+                } catch (e) {
+                    console.warn("Google News RSS Search failed:", e.message);
                 }
-                
+
                 // 3. DuckDuckGo HTML Fallback
                 try {
                     const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
@@ -1098,14 +1060,14 @@ async function executeTool(tName, args, message) {
                         }
 
                         if (results.length > 0) {
-                            return `Here are the top search results for "${query}":\n\n` + results.join('\n\n');
+                            return `Top live web results for "${query}":\n\n` + results.join('\n\n');
                         }
                     }
                 } catch (ddgErr) {
                     console.error("DuckDuckGo Fallback Search Error:", ddgErr);
                 }
-                
-                return `I couldn't find any live results for "${query}". 🧊`;
+
+                return `Could not find live web results for "${query}".`;
             }
             case 'search_reddit': {
                 const res = await fetch(`https://www.reddit.com/r/${args.subreddit}/hot.json?limit=3`).then(r => r.json()).catch(() => null);
