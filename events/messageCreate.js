@@ -421,12 +421,12 @@ module.exports = async function onMessageCreate(message) {
 
   // Retrieve user profile and cross-session conversation memory
   const userProfile = db.getUserProfile(message.author.id);
-  const userConversationHistory = db.getUserConversation(message.author.id, 8);
+  const userConversationHistory = db.getUserConversation(message.author.id, 20);
 
-  // Fetch conversation history for context
+  // Fetch conversation history for context (up to 20 messages for rich dialogue awareness)
   let conversationHistory = [];
   try {
-    const fetched = await message.channel.messages.fetch({ limit: 30 });
+    const fetched = await message.channel.messages.fetch({ limit: 40 });
     
     Array.from(fetched.values()).forEach(msg => {
       if (msg.id === message.id) return;
@@ -443,17 +443,17 @@ module.exports = async function onMessageCreate(message) {
       }
     });
 
-    if (conversationHistory.length > 25) {
-      conversationHistory = conversationHistory.slice(conversationHistory.length - 25);
+    if (conversationHistory.length > 30) {
+      conversationHistory = conversationHistory.slice(conversationHistory.length - 30);
     }
   } catch (error) {
     console.warn("Could not fetch conversation history:", error);
   }
 
-  // If current channel has few recent messages, blend in persistent cross-session history
-  let activeHistory = conversationHistory.slice(-4);
+  // Include the last 20 messages for comprehensive context
+  let activeHistory = conversationHistory.slice(-20);
   if (activeHistory.length === 0 && userConversationHistory.length > 0) {
-    activeHistory = userConversationHistory.slice(-6).map(turn => ({
+    activeHistory = userConversationHistory.slice(-20).map(turn => ({
       role: turn.role,
       content: turn.content,
     }));
@@ -598,7 +598,7 @@ Do not include any <think> reasoning tags or internal system thoughts in your ou
         const requestBody = {
           model: model,
           messages: messages,
-          max_tokens: 1000,
+          max_tokens: 1500,
         };
 
         // Only pass tools to models that support them

@@ -451,7 +451,7 @@ function removeUserFact(userId, keyword) {
     return changes;
 }
 
-function getUserConversation(userId, limit = 10) {
+function getUserConversation(userId, limit = 20) {
     const history = db.user_conversations[userId] || [];
     return history.slice(-limit);
 }
@@ -465,9 +465,9 @@ function appendUserConversation(userId, role, content) {
         content: String(content || '').trim(),
         timestamp: Date.now(),
     });
-    // Keep last 20 turns
-    if (db.user_conversations[userId].length > 20) {
-        db.user_conversations[userId] = db.user_conversations[userId].slice(-20);
+    // Keep last 40 turns in persistent history
+    if (db.user_conversations[userId].length > 40) {
+        db.user_conversations[userId] = db.user_conversations[userId].slice(-40);
     }
     scheduleSave();
 }
