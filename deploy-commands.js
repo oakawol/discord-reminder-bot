@@ -128,6 +128,18 @@ const commands = [
       { name: "prompt", description: "What do you want to create?",                   type: 3, required: true },
     ],
   },
+  {
+    name: "profile",
+    description: "View or clear what the bot remembers about you.",
+    options: [
+      { name: "view", description: "View your memory profile", type: 1 },
+      { name: "wipe", description: "Wipe all your saved facts and memory", type: 1 },
+    ],
+  },
+  {
+    name: "forgetme",
+    description: "Wipe all your saved facts, preferred name, and chat history.",
+  },
 
   // ── Context Menus ──────────────────────────────────────────────────────────
   {

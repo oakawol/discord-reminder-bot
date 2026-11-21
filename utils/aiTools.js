@@ -654,6 +654,20 @@ const aiToolDefinitions = [
     {
         type: 'function',
         function: {
+            name: 'set_user_name',
+            description: 'Saves or updates the user\'s preferred name or nickname so the bot addresses them by this name across all channels, servers, and DMs.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    name: { type: 'string', description: 'The preferred name or nickname (e.g. Alex, Sam, etc.)' }
+                },
+                required: ['name']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
             name: 'remember_fact',
             description: 'Saves an important fact or instruction into the bot\'s long-term memory (brain). Use "user" (specific to the user speaking), "server" (specific to the current Discord server), or "global" (bot-wide). Use this to remember user details, server preferences, or bot-wide instructions. ONLY use "server" or "global" if you are an Administrator.',
             parameters: {
@@ -1264,14 +1278,25 @@ async function executeTool(tName, args, message) {
                 return `Here are my stored memories:\n\n${list}`;
             }
             // ---- BRAIN MEMORY TOOLS ----
+            case 'set_user_name': {
+                const db = require('./database');
+                db.updateUserProfile(message.author.id, { preferredName: args.name });
+                return `Got it! I will remember to call you ${args.name}! ✨`;
+            }
             case 'remember_fact': {
                 const scopeId = args.scope === 'user' ? message.author.id : (args.scope === 'server' ? message.guild?.id : null);
                 db.addBrainMemory(args.scope, scopeId, args.fact);
+                if (args.scope === 'user') {
+                    db.addUserFact(message.author.id, args.fact);
+                }
                 return `Successfully saved to ${args.scope} long-term memory! 🧠✨`;
             }
             case 'forget_fact': {
                 const scopeId = args.scope === 'user' ? message.author.id : (args.scope === 'server' ? message.guild?.id : null);
                 const deleted = db.deleteBrainMemoryByKeyword(args.scope, scopeId, args.keyword);
+                if (args.scope === 'user') {
+                    db.removeUserFact(message.author.id, args.keyword);
+                }
                 if (deleted.changes === 0) {
                     return `I couldn't find any memories in the ${args.scope} scope matching "${args.keyword}". 🧊`;
                 }

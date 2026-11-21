@@ -360,6 +360,16 @@ module.exports = async function onMessageCreate(message) {
   // Signal bot is busy → DND
   if (message.client.setActivity) message.client.setActivity(true);
 
+  // Automatic fast name detection heuristic (e.g. "my name is Alex", "call me Sam", "i go by Alex")
+  const nameIntroMatch = prompt.match(/\b(?:my name is|call me|i go by|i'm called|im called)\s+([A-Za-z0-9_-]{2,20})\b/i);
+  if (nameIntroMatch) {
+    db.updateUserProfile(message.author.id, { preferredName: nameIntroMatch[1] });
+  }
+
+  // Retrieve user profile and cross-session conversation memory
+  const userProfile = db.getUserProfile(message.author.id);
+  const userConversationHistory = db.getUserConversation(message.author.id, 8);
+
   // Fetch conversation history for context
   let conversationHistory = [];
   try {
@@ -387,6 +397,15 @@ module.exports = async function onMessageCreate(message) {
     console.warn("Could not fetch conversation history:", error);
   }
 
+  // If current channel has few recent messages, blend in persistent cross-session history
+  let activeHistory = conversationHistory.slice(-4);
+  if (activeHistory.length === 0 && userConversationHistory.length > 0) {
+    activeHistory = userConversationHistory.slice(-6).map(turn => ({
+      role: turn.role,
+      content: turn.content,
+    }));
+  }
+
   try {
     await message.channel.sendTyping();
     let reply = null;
@@ -402,6 +421,21 @@ module.exports = async function onMessageCreate(message) {
         }).join('\n') +
         "\n---------------------------------";
     }
+
+    // Build user profile text
+    let userProfilePrompt = `\n\n--- USER PROFILE & MEMORY (@${message.author.username}) ---`;
+    userProfilePrompt += `\nDiscord Username: ${message.author.username} (ID: ${message.author.id})`;
+    if (userProfile.preferredName) {
+      userProfilePrompt += `\nPreferred Name: ${userProfile.preferredName} (Always greet and refer to them as ${userProfile.preferredName}!)`;
+    }
+    if (userProfile.facts && userProfile.facts.length > 0) {
+      userProfilePrompt += `\nKnown Facts & Details about ${userProfile.preferredName || message.author.username}:\n` +
+        userProfile.facts.map(f => `• ${f}`).join('\n');
+    }
+    if (userProfile.summary) {
+      userProfilePrompt += `\nSummary of Past Conversations:\n${userProfile.summary}`;
+    }
+    userProfilePrompt += `\n-----------------------------------------------------------`;
 
     // Build tool list (built-in tools + cmd tools)
     const dynamicTools = [...aiToolDefinitions];
@@ -438,7 +472,13 @@ module.exports = async function onMessageCreate(message) {
           {
             role: "system",
             content: `You are Oakawol Bot, a helpful Discord server assistant. Write in simple, clear, and friendly English. Use the tools provided — never refuse an action if a matching tool exists.
-IMPORTANT: You HAVE real-time web search capabilities via tools (search_google, fetch_webpage, search_reddit, get_weather, get_crypto_price). If the user asks for current events, news, recent updates, or live info, ALWAYS call search_google or fetch_webpage to get real-time data!${memoryPrompt}
+IMPORTANT: You HAVE real-time web search capabilities via tools (search_google, fetch_webpage, search_reddit, get_weather, get_crypto_price). If the user asks for current events, news, recent updates, or live info, ALWAYS call search_google or fetch_webpage to get real-time data!${userProfilePrompt}${memoryPrompt}
+
+MEMORY & PERSONALIZATION:
+- You have persistent memory across all Discord servers and DMs! You remember who users are and past discussions.
+- If the user introduces themselves or asks to be called something (e.g. "My name is Alex", "Call me Sam"), call 'set_user_name' with their name.
+- If the user shares personal details, hobbies, likes, dislikes, or instructions (e.g. "I love cats", "I'm learning JavaScript"), call 'remember_fact' with scope 'user'.
+- Always address the user naturally by their preferred name whenever known.
 
 Available bot commands (use via cmd_ tools):
 - cmd_add_money / cmd_remove_money: Manage a user's server balance. Pass args as "<number> <userId>"
@@ -451,7 +491,7 @@ User messages are prefixed with their username (e.g. Username: message) so you k
 Always extract the user's Discord ID from mentions like <@123456789> and include it in args.
 Reply concisely, simply, and politely. Do not include any reasoning or thinking in your response.`,
           },
-          ...conversationHistory.slice(-4),
+          ...activeHistory,
           { role: "user", content: `${message.author.username}: ${prompt}` },
         ];
 
@@ -794,6 +834,11 @@ Reply concisely, simply, and politely. Do not include any reasoning or thinking 
       reply = reply.substring(0, 1997) + "...";
     }
     const result = await message.reply(reply).catch(() => {});
+    if (result) {
+      // Persist dialogue turns to cross-session user memory
+      db.appendUserConversation(message.author.id, "user", `${message.author.username}: ${prompt}`);
+      db.appendUserConversation(message.author.id, "assistant", reply);
+    }
     if (message.client.setActivity) message.client.setActivity(false);
     return result;
   } catch (error) {

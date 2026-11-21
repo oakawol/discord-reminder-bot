@@ -27,6 +27,8 @@ const defaultSchema = {
     blacklist: {},
     memory: {},
     brain_memories: [],
+    user_profiles: {},
+    user_conversations: {},
     upi: {},
     task_pings: {},
 };
@@ -50,6 +52,8 @@ function loadDatabase() {
                 blacklist: parsed.blacklist || {},
                 memory: parsed.memory || {},
                 brain_memories: parsed.brain_memories || [],
+                user_profiles: parsed.user_profiles || {},
+                user_conversations: parsed.user_conversations || {},
                 upi: parsed.upi || {},
                 task_pings: parsed.task_pings || {},
             };
@@ -367,7 +371,9 @@ function deleteBrainMemoryByKeyword(scope, scopeId, keyword) {
         if (scope !== 'global' && m.scopeId !== scopeId) return true;
         return !m.content.toLowerCase().includes(kw);
     });
-    if (db.brain_memories.length !== prevLen) scheduleSave();
+    const changes = prevLen - db.brain_memories.length;
+    if (changes > 0) scheduleSave();
+    return { changes };
 }
 
 function getBrainMemories(scope, scopeId) {
@@ -386,6 +392,103 @@ function getAllRelevantBrainMemories(userId, guildId) {
             return false;
         })
         .sort((a, b) => a.timestamp - b.timestamp);
+}
+
+// ─── User Profile & Cross-Session Memory ─────────────────────────────────────
+
+function getUserProfile(userId) {
+    if (!db.user_profiles[userId]) {
+        db.user_profiles[userId] = {
+            userId,
+            preferredName: null,
+            facts: [],
+            summary: null,
+            updatedAt: Date.now(),
+        };
+    }
+    return db.user_profiles[userId];
+}
+
+function updateUserProfile(userId, updates = {}) {
+    const profile = getUserProfile(userId);
+    Object.assign(profile, updates);
+    profile.updatedAt = Date.now();
+    scheduleSave();
+    return profile;
+}
+
+function addUserFact(userId, fact) {
+    const profile = getUserProfile(userId);
+    const cleanFact = (fact || '').trim();
+    if (!cleanFact) return profile;
+
+    if (!Array.isArray(profile.facts)) profile.facts = [];
+
+    // Avoid exact or near duplicates
+    if (!profile.facts.some(f => f.toLowerCase() === cleanFact.toLowerCase())) {
+        profile.facts.push(cleanFact);
+        // Keep up to 30 facts max
+        if (profile.facts.length > 30) {
+            profile.facts.shift();
+        }
+        profile.updatedAt = Date.now();
+        scheduleSave();
+    }
+    return profile;
+}
+
+function removeUserFact(userId, keyword) {
+    const profile = getUserProfile(userId);
+    if (!Array.isArray(profile.facts)) return 0;
+    const kw = (keyword || '').toLowerCase();
+    const prevLen = profile.facts.length;
+    profile.facts = profile.facts.filter(f => !f.toLowerCase().includes(kw));
+    const changes = prevLen - profile.facts.length;
+    if (changes > 0) {
+        profile.updatedAt = Date.now();
+        scheduleSave();
+    }
+    return changes;
+}
+
+function getUserConversation(userId, limit = 10) {
+    const history = db.user_conversations[userId] || [];
+    return history.slice(-limit);
+}
+
+function appendUserConversation(userId, role, content) {
+    if (!db.user_conversations[userId]) {
+        db.user_conversations[userId] = [];
+    }
+    db.user_conversations[userId].push({
+        role,
+        content: String(content || '').trim(),
+        timestamp: Date.now(),
+    });
+    // Keep last 20 turns
+    if (db.user_conversations[userId].length > 20) {
+        db.user_conversations[userId] = db.user_conversations[userId].slice(-20);
+    }
+    scheduleSave();
+}
+
+function clearUserMemory(userId) {
+    let cleared = false;
+    if (db.user_profiles[userId]) {
+        delete db.user_profiles[userId];
+        cleared = true;
+    }
+    if (db.user_conversations[userId]) {
+        delete db.user_conversations[userId];
+        cleared = true;
+    }
+    const prevBrainLen = db.brain_memories.length;
+    db.brain_memories = db.brain_memories.filter(m => !(m.scope === 'user' && m.scopeId === userId));
+    if (db.brain_memories.length !== prevBrainLen) {
+        cleared = true;
+    }
+    if (cleared) scheduleSave();
+    return cleared;
 }
 
 // ─── UPI ─────────────────────────────────────────────────────────────────────
@@ -495,6 +598,8 @@ module.exports = {
     setMemory, getMemory, getAllMemory,
     // Brain Memories
     addBrainMemory, deleteBrainMemoryByKeyword, getBrainMemories, getAllRelevantBrainMemories,
+    // User Profile & Memory
+    getUserProfile, updateUserProfile, addUserFact, removeUserFact, getUserConversation, appendUserConversation, clearUserMemory,
     // UPI
     setUpi, getUpi, deleteUpi, getAllUpi,
     // Task Pings
