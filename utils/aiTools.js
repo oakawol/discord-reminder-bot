@@ -546,13 +546,79 @@ const aiToolDefinitions = [
         type: 'function',
         function: {
             name: 'get_weather',
-            description: 'Gets current weather info for a city using the open-meteo API (no key needed).',
+            description: 'Gets current weather info and forecasts for a city using the Open-Meteo API (free, highly accurate).',
             parameters: {
                 type: 'object',
                 properties: {
-                    city: { type: 'string', description: 'The city name to get weather for (e.g. London, Tokyo)' }
+                    city: { type: 'string', description: 'The city name to get weather for (e.g. London, Tokyo, New York)' }
                 },
                 required: ['city']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'popcat_fun',
+            description: 'Gets random jokes, fun facts, shower thoughts, or pickup lines using the PopCat API.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    type: {
+                        type: 'string',
+                        enum: ['joke', 'fact', 'showerthought', 'pickupline'],
+                        description: 'The type of fun content to retrieve.'
+                    }
+                },
+                required: ['type']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'popcat_meme',
+            description: 'Generates meme images using PopCat API: Minecraft achievement, fake tweet, wanted poster, jail overlay, or Pooh meme.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    template: {
+                        type: 'string',
+                        enum: ['achievement', 'tweet', 'wanted', 'jail', 'pooh'],
+                        description: 'The meme template to generate.'
+                    },
+                    text: {
+                        type: 'string',
+                        description: 'The text for achievement, tweet, or pooh (e.g. for pooh use "top text | bottom text").'
+                    },
+                    user: {
+                        type: 'string',
+                        description: 'Display name for tweet (optional).'
+                    },
+                    username: {
+                        type: 'string',
+                        description: 'Twitter handle for tweet (optional).'
+                    },
+                    targetUserId: {
+                        type: 'string',
+                        description: 'Discord user ID of the person to put in wanted/jail (optional, defaults to author).'
+                    }
+                },
+                required: ['template']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'popcat_lyrics',
+            description: 'Searches and retrieves song lyrics and artist info using PopCat API.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    song: { type: 'string', description: 'Title of the song to search' }
+                },
+                required: ['song']
             }
         }
     },
@@ -1213,6 +1279,85 @@ async function executeTool(tName, args, message) {
                     .setColor('#87CEEB');
                 await message.channel.send({ embeds: [embed] });
                 return `Weather data retrieved!`;
+            }
+            case 'popcat_fun': {
+                let endpoint = 'https://api.popcat.xyz/joke';
+                if (args.type === 'fact') endpoint = 'https://api.popcat.xyz/fact';
+                else if (args.type === 'showerthought') endpoint = 'https://api.popcat.xyz/showerthoughts';
+                else if (args.type === 'pickupline') endpoint = 'https://api.popcat.xyz/pickuplines';
+
+                const data = await fetch(endpoint).then(r => r.json()).catch(() => null);
+                if (!data) return `Failed to fetch from PopCat API. 🧊`;
+
+                const text = data.joke || data.fact || data.thought || data.pickupline;
+                const embed = new EmbedBuilder()
+                    .setTitle(`🐱 PopCat ${args.type.toUpperCase()}`)
+                    .setDescription(`> ${text}`)
+                    .setColor('#FF69B4');
+                await message.channel.send({ embeds: [embed] });
+                return `Sent a ${args.type}: "${text}"`;
+            }
+            case 'popcat_meme': {
+                let imgUrl = '';
+                const titleMap = {
+                    achievement: '🏆 Achievement Get!',
+                    tweet: '🐦 Twitter / X',
+                    wanted: '🤠 WANTED: Dead or Alive',
+                    jail: '🚔 Off to Jail!',
+                    pooh: '🐻 Tuxedo Pooh',
+                };
+
+                let targetUser = message.author;
+                if (args.targetUserId) {
+                    targetUser = message.client.users.cache.get(args.targetUserId) ||
+                        message.guild?.members.cache.get(args.targetUserId)?.user ||
+                        message.author;
+                }
+                const avatar = targetUser.displayAvatarURL({ extension: 'png', size: 512 });
+
+                if (args.template === 'achievement') {
+                    const text = encodeURIComponent(args.text || 'Unlocked Something Cool');
+                    imgUrl = `https://api.popcat.xyz/achievement?text=${text}`;
+                } else if (args.template === 'tweet') {
+                    const dName = encodeURIComponent(args.user || targetUser.displayName || targetUser.username);
+                    const uName = encodeURIComponent(args.username || targetUser.username);
+                    const tweetText = encodeURIComponent(args.text || 'Thinking about bots...');
+                    imgUrl = `https://api.popcat.xyz/tweet?user=${dName}&username=${uName}&avatar=${encodeURIComponent(avatar)}&text=${tweetText}`;
+                } else if (args.template === 'wanted') {
+                    imgUrl = `https://api.popcat.xyz/wanted?image=${encodeURIComponent(avatar)}`;
+                } else if (args.template === 'jail') {
+                    imgUrl = `https://api.popcat.xyz/jail?image=${encodeURIComponent(avatar)}`;
+                } else if (args.template === 'pooh') {
+                    const parts = (args.text || 'Normal text | Tuxedo text').split('|');
+                    const text1 = encodeURIComponent((parts[0] || '').trim());
+                    const text2 = encodeURIComponent((parts[1] || '').trim());
+                    imgUrl = `https://api.popcat.xyz/pooh?text1=${text1}&text2=${text2}`;
+                }
+
+                if (!imgUrl) return 'Could not generate meme image.';
+
+                const embed = new EmbedBuilder()
+                    .setTitle(titleMap[args.template] || 'Meme Generated')
+                    .setImage(imgUrl)
+                    .setColor('#FF4500');
+                await message.channel.send({ embeds: [embed] });
+                return `Generated ${args.template} meme successfully!`;
+            }
+            case 'popcat_lyrics': {
+                const song = encodeURIComponent(args.song);
+                const data = await fetch(`https://api.popcat.xyz/lyrics?song=${song}`).then(r => r.json()).catch(() => null);
+                if (!data || data.error || !data.lyrics) {
+                    return `Could not find lyrics for "${args.song}". 🧊`;
+                }
+
+                const trimmedLyrics = data.lyrics.length > 2000 ? data.lyrics.substring(0, 1990) + '...' : data.lyrics;
+                const embed = new EmbedBuilder()
+                    .setTitle(`🎵 ${data.title} - ${data.artist}`)
+                    .setDescription(trimmedLyrics)
+                    .setThumbnail(data.image || null)
+                    .setColor('#1DB954');
+                await message.channel.send({ embeds: [embed] });
+                return `Found lyrics for "${data.title}" by ${data.artist}!`;
             }
             case 'translate_text': {
                 const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(args.text)}&langpair=en|${args.target_lang}`).then(r => r.json()).catch(() => null);

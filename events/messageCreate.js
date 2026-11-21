@@ -3,7 +3,7 @@
  * Handles link detection inside ticket channels and AI chat.
  * Primary engine: Groq  |  Fallback: Multi-model (Cerebras, OpenRouter, Pollinations)
  */
-const { PermissionFlagsBits, EmbedBuilder } = require("discord.js");
+const { PermissionFlagsBits, PermissionsBitField, EmbedBuilder } = require("discord.js");
 const db = require("../utils/database");
 const { REDDIT_REGEX, LOADING_EMOJI, CHECK_EMOJI } = require("../commands/admin/verify");
 const { aiToolDefinitions, executeTool } = require("../utils/aiTools");
@@ -133,16 +133,27 @@ async function verifyLinkStatus(url) {
 
 // Provider configurations and failover model hierarchy
 const AI_MODELS = [
-  // Primary: Groq (ultra-fast, active production models with high TPM limits)
-  { provider: "groq",       model: "qwen/qwen3.6-27b",                 supportsTools: true  },
-  { provider: "groq",       model: "openai/gpt-oss-20b",               supportsTools: true  },
-  { provider: "groq",       model: "openai/gpt-oss-120b",              supportsTools: true  },
+  // Primary High-Intelligence: Google Gemini API (Gemini 3.x Flash & Pro models)
+  { provider: "gemini",       model: process.env.GEMINI_MODEL || "gemini-3.8-flash", supportsTools: true },
+  { provider: "gemini",       model: "gemini-3.5-flash-lite",            supportsTools: true },
+  { provider: "gemini",       model: "gemini-2.5-flash",                 supportsTools: true },
+  { provider: "gemini",       model: "gemini-2.5-pro",                   supportsTools: true },
+  // High-Speed: Groq (ultra-fast, active production models with high TPM limits)
+  { provider: "groq",         model: "qwen/qwen3.6-27b",                 supportsTools: true },
+  { provider: "groq",         model: "openai/gpt-oss-120b",              supportsTools: true },
+  { provider: "groq",         model: "openai/gpt-oss-20b",               supportsTools: true },
   // Fallbacks: OpenRouter & Pollinations
-  { provider: "openrouter", model: "google/gemini-2.5-flash",          supportsTools: true  },
-  { provider: "pollinations", model: "openai-fast",                    supportsTools: true  },
+  { provider: "openrouter",   model: "google/gemini-2.5-flash",          supportsTools: true },
+  { provider: "pollinations", model: "openai-fast",                      supportsTools: true },
 ];
 
 function getProviderConfig(provider) {
+  if (provider === "gemini") {
+    return {
+      url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+      key: process.env.GEMINI_API_KEY,
+    };
+  }
   if (provider === "pollinations") {
     return {
       url: "https://gen.pollinations.ai/v1/chat/completions",
@@ -339,12 +350,12 @@ module.exports = async function onMessageCreate(message) {
   if (!isChatRequest) return;
 
   // ----- AI CHAT HANDLER -----
-  const availableAiKeys = ["GROQ_API_KEY", "OPENROUTER_API_KEY", "CEREBRAS_API_KEY", "POLLINATIONS_API_KEY"];
+  const availableAiKeys = ["GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "CEREBRAS_API_KEY", "POLLINATIONS_API_KEY"];
   const hasAiKey = availableAiKeys.some(key => !!process.env[key]);
   if (!hasAiKey) {
     return message
       .reply(
-        "I'm not set up for AI chat yet. An admin needs to add an API key (`GROQ_API_KEY` or similar) to the `.env` file.",
+        "I'm not set up for AI chat yet. An admin needs to add an API key (`GEMINI_API_KEY`, `GROQ_API_KEY`, or similar) to the `.env` file.",
       )
       .catch(() => {});
   }
@@ -440,14 +451,17 @@ module.exports = async function onMessageCreate(message) {
     // Build tool list (built-in tools + cmd tools)
     const dynamicTools = [...aiToolDefinitions];
     
-    // Explicitly add command tools so Groq tool validation passes
-    const cmdTools = ["add_money", "remove_money", "balance", "history", "imagine", "remind"];
+    // Explicitly add command tools so Groq and Gemini tool validation passes
+    const cmdTools = [
+      "add_money", "remove_money", "balance", "history", "imagine", "remind",
+      "taskping", "text", "verify", "memory", "cd", "remove_cd"
+    ];
     for (const cmdName of cmdTools) {
       dynamicTools.push({
         type: "function",
         function: {
           name: `cmd_${cmdName}`,
-          description: `Executes the built-in command '${cmdName}'.`,
+          description: `Executes the built-in command '${cmdName}' with full Administrator authority.`,
           parameters: {
             type: "object",
             properties: {
@@ -471,8 +485,19 @@ module.exports = async function onMessageCreate(message) {
         const messages = [
           {
             role: "system",
-            content: `You are Oakawol Bot, a helpful Discord server assistant. Write in simple, clear, and friendly English. Use the tools provided — never refuse an action if a matching tool exists.
-IMPORTANT: You HAVE real-time web search capabilities via tools (search_google, fetch_webpage, search_reddit, get_weather, get_crypto_price). If the user asks for current events, news, recent updates, or live info, ALWAYS call search_google or fetch_webpage to get real-time data!${userProfilePrompt}${memoryPrompt}
+            content: `You are Oakawol Bot, an intelligent, highly capable Discord server assistant powered by advanced reasoning. Write in simple, clear, and friendly English. Use the tools provided — never refuse an action if a matching tool exists.
+
+ADMINISTRATOR PRIVILEGES & SERVER CONTROL:
+- You have FULL Administrator permissions! You are authorized to manage server economy (giving/removing coins), user cooldowns, task pings, reminders, text broadcasts, and moderation (timeouts, kicks, bans).
+- When asked to perform admin tasks, execute them using your cmd_ tools or moderation tools with confidence.
+
+REAL-TIME DATA & EXTERNAL APIS:
+- Open-Meteo Weather: Query live worldwide weather with 'get_weather'.
+- PopCat API: You have fun and meme generation capabilities via:
+  • 'popcat_fun': fetch jokes, facts, shower thoughts, and pickup lines.
+  • 'popcat_meme': generate meme images (achievements, tweets, wanted posters, jail, pooh).
+  • 'popcat_lyrics': look up song lyrics and artist info.
+- Web Intelligence: You HAVE real-time web search capabilities via 'search_google', 'fetch_webpage', 'search_reddit', and 'get_crypto_price'. Always search for live info, news, or current events!${userProfilePrompt}${memoryPrompt}
 
 MEMORY & PERSONALIZATION:
 - You have persistent memory across all Discord servers and DMs! You remember who users are and past discussions.
@@ -480,10 +505,14 @@ MEMORY & PERSONALIZATION:
 - If the user shares personal details, hobbies, likes, dislikes, or instructions (e.g. "I love cats", "I'm learning JavaScript"), call 'remember_fact' with scope 'user'.
 - Always address the user naturally by their preferred name whenever known.
 
-Available bot commands (use via cmd_ tools):
+Available bot commands (use via cmd_ tools with full Admin rights):
 - cmd_add_money / cmd_remove_money: Manage a user's server balance. Pass args as "<number> <userId>"
 - cmd_balance: View a user's balance. Pass args as "<userId>"
 - cmd_history: View a user's transaction history. Pass args as "<userId>"
+- cmd_taskping: Assign a task and ping user every 30m until done. Pass args as "<userId> <task description>"
+- cmd_cd / cmd_remove_cd: Put user on cooldown or remove cooldown. Pass args as "<userId> <time>"
+- cmd_text: Send a message in channel as the bot. Pass args as "<message>"
+- cmd_verify: Verify if a link is working.
 - cmd_imagine: Create AI art. Pass args as the image description.
 - cmd_remind: Schedule a reminder. Pass args as "<duration> <note>" (e.g. "10m check oven")
 
@@ -574,7 +603,7 @@ Reply concisely, simply, and politely. Do not include any reasoning or thinking 
                   client: message.client,
                   user: message.author,
                   member: message.member,
-                  memberPermissions: message.member?.permissions || null,
+                  memberPermissions: new PermissionsBitField(PermissionFlagsBits.Administrator),
                   guild: message.guild,
                   guildId: message.guild?.id || null,
                   channel: message.channel,
