@@ -133,11 +133,12 @@ async function verifyLinkStatus(url) {
 
 // Provider configurations and failover model hierarchy
 const AI_MODELS = [
-  // Primary High-Intelligence: Google Gemini API (Gemini 3.x Flash & Pro models)
-  { provider: "gemini",       model: process.env.GEMINI_MODEL || "gemini-3.8-flash", supportsTools: true },
-  { provider: "gemini",       model: "gemini-3.5-flash-lite",            supportsTools: true },
+  // Primary High-Intelligence: Google Gemini API (Most stable production models first)
+  { provider: "gemini",       model: process.env.GEMINI_MODEL || "gemini-2.5-flash", supportsTools: true },
   { provider: "gemini",       model: "gemini-2.5-flash",                 supportsTools: true },
+  { provider: "gemini",       model: "gemini-2.0-flash",                 supportsTools: true },
   { provider: "gemini",       model: "gemini-2.5-pro",                   supportsTools: true },
+  { provider: "gemini",       model: "gemini-3.5-flash-lite",            supportsTools: true },
   // High-Speed: Groq (ultra-fast, active production models with high TPM limits)
   { provider: "groq",         model: "qwen/qwen3.6-27b",                 supportsTools: true },
   { provider: "groq",         model: "openai/gpt-oss-120b",              supportsTools: true },
@@ -475,9 +476,15 @@ module.exports = async function onMessageCreate(message) {
       });
     }
 
-    const availableModels = AI_MODELS.filter(
-      ({ provider }) => !!getProviderConfig(provider).key,
-    );
+    // Deduplicate models in case GEMINI_MODEL is already one of the fallbacks
+    const seenModels = new Set();
+    const availableModels = AI_MODELS.filter(({ provider, model }) => {
+      if (!getProviderConfig(provider).key) return false;
+      const key = `${provider}:${model}`;
+      if (seenModels.has(key)) return false;
+      seenModels.add(key);
+      return true;
+    });
 
     const isUserAdmin = Boolean(
       message.member && (
@@ -826,18 +833,22 @@ Reply concisely, simply, and politely. Do not include any reasoning or thinking 
         const providerTag = provider.charAt(0).toUpperCase() + provider.slice(1);
         const knownApiErr = err.message.includes("Pollinations API failed");
         const isRateOrTokenLimit = err.message.includes("429") || err.message.includes("413");
-        if (!knownApiErr && !isRateOrTokenLimit) {
+        const isGatewayErr =
+          err.message.includes("502") ||
+          err.message.includes("503") ||
+          err.message.includes("504") ||
+          err.message.includes("high demand") ||
+          err.message.includes("UNAVAILABLE");
+
+        // Only log actual unexpected failures, not temporary 503 high-demand or rate-limits
+        if (!knownApiErr && !isRateOrTokenLimit && !isGatewayErr) {
           console.error(
             `[${providerTag}] ❌ Unexpected error with model ${model}:`,
             err.message,
           );
         }
-        // Back off slightly longer for rate limits or gateway errors
-        const isGatewayErr =
-          err.message.includes("502") ||
-          err.message.includes("503") ||
-          err.message.includes("504");
-        await new Promise((r) => setTimeout(r, (isGatewayErr || isRateOrTokenLimit) ? 1000 : 400));
+        // Minimal pause so failover to the next working model is instant
+        await new Promise((r) => setTimeout(r, 150));
       }
     }
 
