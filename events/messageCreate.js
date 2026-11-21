@@ -131,22 +131,63 @@ async function verifyLinkStatus(url) {
   }
 }
 
-// Provider configurations and failover model hierarchy
-const AI_MODELS = [
-  // Primary High-Intelligence: Google Gemini API (Gemini 3.5 Flash Lite default)
-  { provider: "gemini",       model: process.env.GEMINI_MODEL || "gemini-3.5-flash-lite", supportsTools: true },
-  { provider: "gemini",       model: "gemini-3.5-flash-lite",            supportsTools: true },
-  { provider: "gemini",       model: "gemini-2.5-flash",                 supportsTools: true },
-  { provider: "gemini",       model: "gemini-2.0-flash",                 supportsTools: true },
-  { provider: "gemini",       model: "gemini-2.5-pro",                   supportsTools: true },
-  // High-Speed: Groq (ultra-fast, active production models with high TPM limits)
-  { provider: "groq",         model: "qwen/qwen3.6-27b",                 supportsTools: true },
-  { provider: "groq",         model: "openai/gpt-oss-120b",              supportsTools: true },
-  { provider: "groq",         model: "openai/gpt-oss-20b",               supportsTools: true },
-  // Fallbacks: OpenRouter & Pollinations
-  { provider: "openrouter",   model: "google/gemini-2.5-flash",          supportsTools: true },
-  { provider: "pollinations", model: "openai-fast",                      supportsTools: true },
-];
+function isComplexQuery(text) {
+  if (!text) return false;
+  // Code blocks or programming syntax
+  if (/```|`[^`]+`|\b(function|class|def|const|let|var|import|export|async|await|return|SELECT|INSERT|UPDATE|DELETE)\b/.test(text)) {
+    return true;
+  }
+  // Programming and technical questions
+  if (/\b(code|coding|debug|debugging|script|algorithm|refactor|error|exception|stack trace|regex|python|javascript|typescript|c\+\+|java|rust|golang|html|css|sql|api|backend|frontend|framework)\b/i.test(text)) {
+    return true;
+  }
+  // Deep analytical / multi-step tasks
+  if (/\b(analyze|analysis|deep dive|explain in detail|step[- ]by[- ]step|compare and contrast|pros and cons|architecture|mathematics|calculus|algebra|physics|proof|audit|troubleshoot|diagnose)\b/i.test(text)) {
+    return true;
+  }
+  // Long, multi-paragraph prompts
+  if (text.length > 350 || (text.match(/\n/g) || []).length >= 3) {
+    return true;
+  }
+  return false;
+}
+
+// Provider configurations and dynamic failover model hierarchy
+function getAiModelList(isComplex = false) {
+  if (isComplex) {
+    return [
+      // Frontier Intelligence: Gemini 4 Hydrogen for complex coding, math, architecture & deep reasoning
+      { provider: "gemini",       model: process.env.GEMINI_COMPLEX_MODEL || "gemini-4-hydrogen", supportsTools: true },
+      { provider: "gemini",       model: "gemini-4-hydrogen",               supportsTools: true },
+      { provider: "gemini",       model: "gemini-2.5-pro",                   supportsTools: true },
+      { provider: "gemini",       model: process.env.GEMINI_MODEL || "gemini-3.5-flash-lite", supportsTools: true },
+      { provider: "gemini",       model: "gemini-3.5-flash-lite",            supportsTools: true },
+      { provider: "gemini",       model: "gemini-2.5-flash",                 supportsTools: true },
+      // High-Speed: Groq
+      { provider: "groq",         model: "openai/gpt-oss-120b",              supportsTools: true },
+      { provider: "groq",         model: "qwen/qwen3.6-27b",                 supportsTools: true },
+      // Fallbacks
+      { provider: "openrouter",   model: "google/gemini-2.5-flash",          supportsTools: true },
+      { provider: "pollinations", model: "openai-fast",                      supportsTools: true },
+    ];
+  }
+
+  return [
+    // Standard Casual & Daily: Gemini 3.5 Flash Lite (ultra-low latency, friendly banter)
+    { provider: "gemini",       model: process.env.GEMINI_MODEL || "gemini-3.5-flash-lite", supportsTools: true },
+    { provider: "gemini",       model: "gemini-3.5-flash-lite",            supportsTools: true },
+    { provider: "gemini",       model: "gemini-2.5-flash",                 supportsTools: true },
+    { provider: "gemini",       model: "gemini-2.0-flash",                 supportsTools: true },
+    { provider: "gemini",       model: "gemini-2.5-pro",                   supportsTools: true },
+    // High-Speed: Groq
+    { provider: "groq",         model: "qwen/qwen3.6-27b",                 supportsTools: true },
+    { provider: "groq",         model: "openai/gpt-oss-120b",              supportsTools: true },
+    { provider: "groq",         model: "openai/gpt-oss-20b",               supportsTools: true },
+    // Fallbacks
+    { provider: "openrouter",   model: "google/gemini-2.5-flash",          supportsTools: true },
+    { provider: "pollinations", model: "openai-fast",                      supportsTools: true },
+  ];
+}
 
 function getProviderConfig(provider) {
   if (provider === "gemini") {
@@ -476,9 +517,13 @@ module.exports = async function onMessageCreate(message) {
       });
     }
 
-    // Deduplicate models in case GEMINI_MODEL is already one of the fallbacks
+    // Intelligent dynamic routing: Gemini 4 Hydrogen for complex tasks, Gemini 3.5 Flash Lite for casual chat
+    const isComplex = isComplexQuery(prompt);
+    const targetModelList = getAiModelList(isComplex);
+
+    // Deduplicate models in case env model is already one of the fallbacks
     const seenModels = new Set();
-    const availableModels = AI_MODELS.filter(({ provider, model }) => {
+    const availableModels = targetModelList.filter(({ provider, model }) => {
       if (!getProviderConfig(provider).key) return false;
       const key = `${provider}:${model}`;
       if (seenModels.has(key)) return false;
