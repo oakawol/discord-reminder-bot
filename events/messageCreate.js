@@ -171,7 +171,23 @@ function isCurrentEventOrMovieQuery(text) {
 function isMusicQuery(text) {
   if (!text) return false;
   const t = text.toLowerCase();
-  return /\b(play|gaana|gana|geet|music|song|songs|track|tracks|bajao|baja\s+de|bajana|chalao|chala\s+de|chalu\s+kar|lagao|laga\s+de|sunao|suna\s+de|add\s+karo|add\s+this|queue|skip|pause|resume|vibe)\b/i.test(t);
+  // Non-music keywords guarantee FALSE (economy, admin, reminders, tasks, moderation, tickets)
+  if (/\b(coins?|money|rupees?|rupaye?|paise?|cash|bal|balance|wallet|remind|reminder|timer|task|taskping|role|roles|verify|verification|timeout|ban|kick|ticket|tickets|panel|close|memory|cooldown|cd)\b/i.test(t)) {
+    return false;
+  }
+  // Explicit music keywords
+  if (/\b(gaana|gana|geet|music|song|songs|track|tracks|jiosaavn|spotify|playlist|lofi|phonk|banger|acoustic|soundtrack)\b/i.test(t)) {
+    return true;
+  }
+  // Audio playback verbs and intents
+  if (/\b(bajao|baja\s+de|bajana|chalao|chala\s+de|chalu\s+kar|sunao|suna\s+de|add\s+to\s+queue|queue\s+mein\s+daal|autoplay)\b/i.test(t)) {
+    return true;
+  }
+  // Music-specific phrases
+  if (/\b(play\s+\w+|queue\s+\w+|vibe\s+dj)\b/i.test(t)) {
+    return true;
+  }
+  return false;
 }
 
 // Provider configurations and dynamic failover model hierarchy
@@ -495,8 +511,167 @@ module.exports = async function onMessageCreate(message) {
     return message.reply(quickReply).catch(() => {});
   }
 
-  // Direct fast-path for Music Control intents (0ms latency, zero misunderstanding)
+  // Direct fast-path for Economy & Currency commands (0ms latency, 100% precision)
   if (message.guild) {
+    // Add money / coins intent (e.g. "@Oakawol add 75 coins to @user", "@Oakawol add 75 @user", "@Oakawol add_money 50 @user")
+    const addMoneyMatch = cleanPrompt.match(/^(?:add(?:_money)?|give|award)\s+(\d+)\s*(?:coins?|rs|₹|rupees?|bucks)?\s*(?:to\s+)?(.+)?$/i);
+    if (addMoneyMatch) {
+      const command = message.client.commands?.get("add_money");
+      if (command) {
+        const amount = parseFloat(addMoneyMatch[1]);
+        const rest = addMoneyMatch[2] || "";
+        let targetUser = message.mentions.users.find(u => u.id !== message.client.user.id);
+        if (!targetUser && rest) {
+          const idMatch = rest.match(/\b\d{17,20}\b/);
+          if (idMatch) {
+            targetUser = message.client.users.cache.get(idMatch[0]) || message.guild?.members.cache.get(idMatch[0])?.user;
+          } else {
+            const cleanName = rest.replace(/[@#]/g, "").trim().toLowerCase();
+            const member = message.guild?.members.cache.find(m => 
+              m.user.username.toLowerCase() === cleanName || 
+              (m.nickname && m.nickname.toLowerCase() === cleanName)
+            );
+            if (member) targetUser = member.user;
+          }
+        }
+        if (targetUser) {
+          const mockInteraction = {
+            client: message.client,
+            user: message.author,
+            member: message.member,
+            memberPermissions: message.member?.permissions || null,
+            guild: message.guild,
+            guildId: message.guild?.id || null,
+            channel: message.channel,
+            channelId: message.channel.id,
+            commandName: "add_money",
+            isChatInputCommand: () => true,
+            deferReply: async () => { await message.channel.sendTyping(); },
+            reply: async (data) => message.reply(data),
+            editReply: async (data) => message.channel.send(data),
+            followUp: async (data) => message.channel.send(data),
+            options: {
+              getUser: () => targetUser,
+              getNumber: () => amount,
+              getString: () => "Added via Oakawol mention",
+              getSubcommand: () => null
+            }
+          };
+          try {
+            await command.execute(mockInteraction);
+            return;
+          } catch (e) {
+            console.error("[Direct add_money Error]", e);
+          }
+        }
+      }
+    }
+
+    // Remove money / coins intent
+    const removeMoneyMatch = cleanPrompt.match(/^(?:remove(?:_money)?|deduct|cut|take)\s+(\d+)\s*(?:coins?|rs|₹|rupees?|bucks)?\s*(?:from\s+)?(.+)?$/i);
+    if (removeMoneyMatch) {
+      const command = message.client.commands?.get("remove_money");
+      if (command) {
+        const amount = parseFloat(removeMoneyMatch[1]);
+        const rest = removeMoneyMatch[2] || "";
+        let targetUser = message.mentions.users.find(u => u.id !== message.client.user.id);
+        if (!targetUser && rest) {
+          const idMatch = rest.match(/\b\d{17,20}\b/);
+          if (idMatch) {
+            targetUser = message.client.users.cache.get(idMatch[0]) || message.guild?.members.cache.get(idMatch[0])?.user;
+          } else {
+            const cleanName = rest.replace(/[@#]/g, "").trim().toLowerCase();
+            const member = message.guild?.members.cache.find(m => 
+              m.user.username.toLowerCase() === cleanName || 
+              (m.nickname && m.nickname.toLowerCase() === cleanName)
+            );
+            if (member) targetUser = member.user;
+          }
+        }
+        if (targetUser) {
+          const mockInteraction = {
+            client: message.client,
+            user: message.author,
+            member: message.member,
+            memberPermissions: message.member?.permissions || null,
+            guild: message.guild,
+            guildId: message.guild?.id || null,
+            channel: message.channel,
+            channelId: message.channel.id,
+            commandName: "remove_money",
+            isChatInputCommand: () => true,
+            deferReply: async () => { await message.channel.sendTyping(); },
+            reply: async (data) => message.reply(data),
+            editReply: async (data) => message.channel.send(data),
+            followUp: async (data) => message.channel.send(data),
+            options: {
+              getUser: () => targetUser,
+              getNumber: () => amount,
+              getString: () => "Deducted via Oakawol mention",
+              getSubcommand: () => null
+            }
+          };
+          try {
+            await command.execute(mockInteraction);
+            return;
+          } catch (e) {
+            console.error("[Direct remove_money Error]", e);
+          }
+        }
+      }
+    }
+
+    // Check balance intent
+    const balanceMatch = cleanPrompt.match(/^(?:bal|balance|wallet|kitne\s+coins?\s+hai)\b(?:\s+(.+))?$/i);
+    if (balanceMatch) {
+      const command = message.client.commands?.get("balance");
+      if (command) {
+        const rest = balanceMatch[1] || "";
+        let targetUser = message.mentions.users.find(u => u.id !== message.client.user.id);
+        if (!targetUser && rest) {
+          const idMatch = rest.match(/\b\d{17,20}\b/);
+          if (idMatch) {
+            targetUser = message.client.users.cache.get(idMatch[0]) || message.guild?.members.cache.get(idMatch[0])?.user;
+          } else {
+            const cleanName = rest.replace(/[@#]/g, "").trim().toLowerCase();
+            const member = message.guild?.members.cache.find(m => 
+              m.user.username.toLowerCase() === cleanName || 
+              (m.nickname && m.nickname.toLowerCase() === cleanName)
+            );
+            if (member) targetUser = member.user;
+          }
+        }
+        if (!targetUser) targetUser = message.author;
+        const mockInteraction = {
+          client: message.client,
+          user: message.author,
+          member: message.member,
+          memberPermissions: message.member?.permissions || null,
+          guild: message.guild,
+          guildId: message.guild?.id || null,
+          channel: message.channel,
+          channelId: message.channel.id,
+          commandName: "balance",
+          isChatInputCommand: () => true,
+          deferReply: async () => { await message.channel.sendTyping(); },
+          reply: async (data) => message.reply(data),
+          editReply: async (data) => message.channel.send(data),
+          followUp: async (data) => message.channel.send(data),
+          options: {
+            getUser: () => targetUser,
+            getSubcommand: () => null
+          }
+        };
+        try {
+          await command.execute(mockInteraction);
+          return;
+        } catch (e) {
+          console.error("[Direct balance Error]", e);
+        }
+      }
+    }
+
+    // Direct fast-path for Music Control intents (ONLY when music session is actively running)
     const isSkipIntent = /\b(skip|purana\s+wala\s+skip|next\s+gana|agla\s+gana|skip\s+kar(do)?|skip\s+this|ye\s+bajao\s+ab|change\s+gana)\b/i.test(cleanPrompt);
     const isPauseIntent = /^(pause|pause\s+kar(do)?|gana\s+rok\s+do|ruk\s+ja)$/i.test(cleanPrompt);
     const isResumeIntent = /^(resume|resume\s+kar(do)?|unpause|chala\s+wapas|play\s+again)$/i.test(cleanPrompt);
@@ -505,50 +680,50 @@ module.exports = async function onMessageCreate(message) {
 
     if (isSkipIntent || isPauseIntent || isResumeIntent || isStopIntent || isNowPlayingIntent) {
       const q = getQueue(message.guild.id);
-      if (!q || (!q.currentSong && !q.isPlaying)) {
+      if (q && (q.currentSong || q.isPlaying)) {
+        if (isSkipIntent) {
+          const skipped = q.currentSong?.title || "current song";
+          const nextSong = q.songs[0];
+          q.player.stop();
+          const replyText = nextSong
+            ? `Skipped **${skipped}**! ⏭️ Abhi agla gaana **${nextSong.title}**${nextSong.artist ? ` by ${nextSong.artist}` : ""} chalu ho gaya hai bhai! 🔥`
+            : `Skipped **${skipped}**! ⏭️ Queue ab empty ho gaya hai. Koi naya gaana bajana ho toh batao! 😎`;
+          return message.reply(replyText).catch(() => {});
+        }
+
+        if (isPauseIntent) {
+          if (q.player.state.status === "paused") {
+            return message.reply("Song pehle se hi paused hai bhai! ⏸️").catch(() => {});
+          }
+          q.player.pause();
+          return message.reply("Song pause kar diya bhai! ⏸️ Jab dubara sunna ho toh bol dena `resume`!").catch(() => {});
+        }
+
+        if (isResumeIntent) {
+          if (q.player.state.status !== "paused") {
+            return message.reply("Song toh chal hi raha hai bhai, paused nahi tha! ▶️").catch(() => {});
+          }
+          q.player.unpause();
+          return message.reply("Playback resume kar diya! Full vibe chalu wapas ▶️🔥").catch(() => {});
+        }
+
+        if (isStopIntent) {
+          q.destroy();
+          return message.reply("Gana band kar diya, queue clear kar di aur voice channel se nikal gaya! ⏹️👋").catch(() => {});
+        }
+
+        if (isNowPlayingIntent) {
+          const s = q.currentSong;
+          const isPaused = q.player.state.status === "paused";
+          return message.reply(`Abhi voice channel **#${q.voiceChannel?.name || "voice"}** mein ${isPaused ? "PAUSED" : "PLAYING"}: **${s?.title || "Unknown"}**${s?.artist ? ` by ${s.artist}` : ""} (${s?.duration || "?"})! 🎶🔥`).catch(() => {});
+        }
+      } else if (isNowPlayingIntent || /\b(gana|song|music)\b/i.test(cleanPrompt)) {
         return message.reply("Arre bhai, abhi server mein koi gaana nahi chal raha hai! 🔇 Gaana sunna hai toh bas bolo: `@Oakawol play <song name>`! 🎶").catch(() => {});
-      }
-
-      if (isSkipIntent) {
-        const skipped = q.currentSong?.title || "current song";
-        const nextSong = q.songs[0];
-        q.player.stop();
-        const replyText = nextSong
-          ? `Skipped **${skipped}**! ⏭️ Abhi agla gaana **${nextSong.title}**${nextSong.artist ? ` by ${nextSong.artist}` : ""} chalu ho gaya hai bhai! 🔥`
-          : `Skipped **${skipped}**! ⏭️ Queue ab empty ho gaya hai. Koi naya gaana bajana ho toh batao! 😎`;
-        return message.reply(replyText).catch(() => {});
-      }
-
-      if (isPauseIntent) {
-        if (q.player.state.status === "paused") {
-          return message.reply("Song pehle se hi paused hai bhai! ⏸️").catch(() => {});
-        }
-        q.player.pause();
-        return message.reply("Song pause kar diya bhai! ⏸️ Jab dubara sunna ho toh bol dena `resume`!").catch(() => {});
-      }
-
-      if (isResumeIntent) {
-        if (q.player.state.status !== "paused") {
-          return message.reply("Song toh chal hi raha hai bhai, paused nahi tha! ▶️").catch(() => {});
-        }
-        q.player.unpause();
-        return message.reply("Playback resume kar diya! Full vibe chalu wapas ▶️🔥").catch(() => {});
-      }
-
-      if (isStopIntent) {
-        q.destroy();
-        return message.reply("Gana band kar diya, queue clear kar di aur voice channel se nikal gaya! ⏹️👋").catch(() => {});
-      }
-
-      if (isNowPlayingIntent) {
-        const s = q.currentSong;
-        const isPaused = q.player.state.status === "paused";
-        return message.reply(`Abhi voice channel **#${q.voiceChannel?.name || "voice"}** mein ${isPaused ? "PAUSED" : "PLAYING"}: **${s?.title || "Unknown"}**${s?.artist ? ` by ${s.artist}` : ""} (${s?.duration || "?"})! 🎶🔥`).catch(() => {});
       }
     }
 
-    // Autoplay toggle intent
-    const autoplayMatch = cleanPrompt.match(/\bautoplay\s*(on|off|chalu|band)?\b/i);
+    // Autoplay toggle intent (e.g. "@Oakawol autoplay on", "@Oakawol autoplay off")
+    const autoplayMatch = cleanPrompt.match(/^autoplay\s*(on|off|chalu|band)?$/i);
     if (autoplayMatch) {
       const q = getQueue(message.guild.id);
       if (!q) {
@@ -558,39 +733,6 @@ module.exports = async function onMessageCreate(message) {
       const enable = val ? /^(on|chalu)$/i.test(val) : !q.autoplay;
       q.autoplay = enable;
       return message.reply(`Smart Infinite Autoplay has been turned **${enable ? 'ON ♾️ (Queue khatam hone par bhi vibe chalu rahegi!)' : 'OFF ⏹️ (Aakhri gaane ke baad ruk jayega)'}**!`).catch(() => {});
-    }
-
-    // Personal favorites / surprise me intent
-    const isFavoritesIntent = /\b(mera\s+favorite|mere\s+taste\s+ka|surprise\s+me|apni\s+marzi\s+se|kuch\s+badiya\s+apna|my\s+favorites?)\b/i.test(cleanPrompt);
-    if (isFavoritesIntent) {
-      const toolRes = await executeTool("music_user_favorites", {}, message);
-      return message.reply(toolRes).catch(() => {});
-    }
-
-    // Mood / Scenario Vibe DJ intent
-    const moodMatch = resolveMoodVibe(cleanPrompt);
-    if (moodMatch && /\b(chala|chalao|lagao|baja|bajao|queue|play|sunao)\b/i.test(cleanPrompt)) {
-      const toolRes = await executeTool("music_vibe_dj", { vibe: moodMatch.key, count: 4 }, message);
-      return message.reply(toolRes).catch(() => {});
-    }
-
-    const playMatch = cleanPrompt.match(/^(?:play|chalao|bajao|chala\s+de|lagao|laga\s+de|add)\s+(.+)$/i);
-    const isGenericAdd = /^(add\s+karo|add\s+it|add\s+song|daalo|queue\s+mein\s+daalo)$/i.test(cleanPrompt);
-
-    if (playMatch || isGenericAdd) {
-      let rawQuery = playMatch ? playMatch[1].trim() : "";
-      // Extract count if user requested multiple songs (e.g. "add 5", "5 songs", "add only songs by arjeet singh in queue add 5")
-      const countMatch = cleanPrompt.match(/\b(?:add|play)?\s*(\d+)\s*(?:songs?|gane|tracks?)?\b/i) || cleanPrompt.match(/\b(?:add|play)\s+(\d+)\b/i);
-      const count = countMatch ? Math.min(Math.max(parseInt(countMatch[1]) || 1, 1), 10) : 1;
-
-      let songQuery = cleanMusicQuery(rawQuery);
-      if (isGenericAdd || !songQuery) {
-        songQuery = "good vibes";
-      }
-      songQuery = songQuery.replace(/^(something\s+(random\s+)?|random\s+)/i, "").trim() || "good vibes";
-
-      const toolRes = await executeTool("music_play", { query: songQuery, count, playNow: false }, message);
-      return message.reply(toolRes).catch(() => {});
     }
   }
 
@@ -677,23 +819,35 @@ module.exports = async function onMessageCreate(message) {
     // Build tool list (built-in tools + cmd tools)
     const dynamicTools = [...aiToolDefinitions];
     
-    // Explicitly add command tools so Groq and Gemini tool validation passes
-    const cmdTools = [
-      "add_money", "remove_money", "balance", "history", "imagine", "remind",
-      "taskping", "text", "verify", "memory", "cd", "remove_cd", "roast", "flirt"
-    ];
-    for (const cmdName of cmdTools) {
+    // Explicitly add command tools with dedicated descriptions so Groq & Gemini know exactly when to call each
+    const cmdToolMap = {
+      add_money: "Adds coins/money to a user's wallet/balance (e.g. args: '75 <@user>' or '100 <@userId>'). Call this whenever user wants to add, award, or give coins/money.",
+      remove_money: "Deducts or removes coins/money from a user's balance (e.g. args: '50 <@user>').",
+      balance: "Checks a user's coin balance, rank, and recent transactions (e.g. args: '<@user>' or empty for own).",
+      history: "Shows recent transaction history for a user.",
+      imagine: "Generates an image from a prompt (e.g. args: 'cyberpunk cat in neon city').",
+      remind: "Sets a timer or reminder (e.g. args: '10m submit assignment').",
+      taskping: "Pings a user or role with a task reminder (e.g. args: '1h <@user> complete testing').",
+      text: "Sends a direct plain message through the bot.",
+      verify: "Manually verifies a user or handles verification.",
+      memory: "Views or manages conversation memory.",
+      cd: "Sets a cooldown timer on a user for a command/task.",
+      remove_cd: "Removes a cooldown from a user.",
+      roast: "Roasts a user playfully.",
+      flirt: "Sends a funny/witty flirt line to a user."
+    };
+    for (const [cmdName, cmdDesc] of Object.entries(cmdToolMap)) {
       dynamicTools.push({
         type: "function",
         function: {
           name: `cmd_${cmdName}`,
-          description: `Executes the built-in command '${cmdName}' with full Administrator authority.`,
+          description: cmdDesc,
           parameters: {
             type: "object",
             properties: {
               args: {
                 type: "string",
-                description: 'Arguments for the command (e.g. "50 <@user>" or description)',
+                description: 'Arguments for the command (e.g. "75 <@user>" or "10m reminder text")',
               },
             },
           },
@@ -840,6 +994,13 @@ MUSIC & VOICE CHAT CONTROLS (DIRECT AI MUSIC CONTROL):
   • 'music_stop': Stop playback, clear queue, and leave voice channel.
   • 'music_queue': Show list of upcoming songs in queue.
 - If the user asks "kaunsa gana play kar rahe ho", "what song is playing", look at CURRENT MUSIC STATUS above or call 'music_now_playing' and tell them the exact track and channel in enthusiastic Hinglish!
+CRITICAL RULE (COMMAND VS MUSIC SEPARATION):
+- NEVER call 'music_play' when the user is asking about economy, coins, money, balances, reminders, tasks, tickets, or roles!
+- If the user asks to add or give coins/money (e.g. "add 75 coins to @user", "give 100 money"), YOU MUST CALL 'cmd_add_money'! NEVER call 'music_play' for coins/money!
+- If the user asks to check balance or wallet, call 'cmd_balance'.
+- If the user asks for reminders or timers, call 'cmd_remind'.
+- ONLY call 'music_play', 'music_vibe_dj', or music tools when the user explicitly requests music, songs, tracks, artists, or audio vibes in a voice channel!
+
 CRITICAL RULE (NEVER HALLUCINATE MUSIC PLAYBACK IN TEXT):
 - NEVER pretend to add or play a song in plain text!
 - NEVER say "queue mein daal raha hu", "line mein laga diya", "playing now", or "maine add kar diya" unless you ACTUALLY call 'music_play' tool!
@@ -1013,6 +1174,21 @@ Do not include any <think> reasoning tags or internal system thoughts in your ou
                           argsObj.args = argsObj.args.replace(match[0], "");
                           return user;
                         }
+                      }
+                      if (message.mentions.users.size > 0) {
+                        for (const [id, user] of message.mentions.users) {
+                          if (id !== message.client.user.id) {
+                            return user;
+                          }
+                        }
+                      }
+                      if (argsObj.args && message.guild) {
+                        const cleanArgs = argsObj.args.replace(/[@#]/g, "").trim().toLowerCase();
+                        const foundMember = message.guild.members.cache.find(m => 
+                          cleanArgs.includes(m.user.username.toLowerCase()) || 
+                          (m.nickname && cleanArgs.includes(m.nickname.toLowerCase()))
+                        );
+                        if (foundMember) return foundMember.user;
                       }
                       return null;
                     },
