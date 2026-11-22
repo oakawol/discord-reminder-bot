@@ -9,13 +9,17 @@ const {
   AudioPlayerStatus,
   VoiceConnectionStatus,
   entersState,
+  demuxProbe,
   StreamType,
 } = require("@discordjs/voice");
-const { Ytdl } = require("@distube/ytdl-core");
+const { Ytdl, Client } = require("@distube/ytdl-core");
 const yts = require("yt-search");
 const { EmbedBuilder } = require("discord.js");
 
-const ytdl = new Ytdl();
+// Initialize Ytdl with VisionOS and Tv clients to bypass player solver errors
+const ytdl = new Ytdl({
+  clients: [Client.VisionOS, Client.Tv, Client.WebEmbedded, Client.Mweb],
+});
 const queues = new Map();
 
 class GuildQueue {
@@ -59,6 +63,8 @@ class GuildQueue {
         channelId: this.voiceChannel.id,
         guildId: this.guildId,
         adapterCreator: this.voiceChannel.guild.voiceAdapterCreator,
+        selfDeaf: true,
+        selfMute: false,
       });
 
       this.connection.subscribe(this.player);
@@ -114,16 +120,29 @@ class GuildQueue {
 
     try {
       this.connect();
+
+      try {
+        await entersState(this.connection, VoiceConnectionStatus.Ready, 5_000);
+      } catch (e) {
+        // Continue if connection is already transitioning
+      }
+
       const stream = ytdl.download(song.url, {
         filter: { hasAudio: true, hasVideo: false },
         quality: "highestaudio",
         highWaterMark: 1 << 25,
       });
 
-      const resource = createAudioResource(stream, {
-        inputType: StreamType.Arbitrary,
+      // Use demuxProbe to detect audio format (e.g. webm/opus) and create crystal clear audio resource
+      const { stream: probedStream, type } = await demuxProbe(stream);
+      const resource = createAudioResource(probedStream, {
+        inputType: type,
         inlineVolume: true,
       });
+
+      if (resource.volume) {
+        resource.volume.setVolume(1.0);
+      }
 
       this.player.play(resource);
 
