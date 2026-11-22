@@ -1,6 +1,7 @@
 /**
  * utils/musicManager.js
- * High-performance voice channel music player using @discordjs/voice, @distube/ytdl-core, and yt-search.
+ * Ultra-lightweight, memory-efficient voice music player using play-dl and @discordjs/voice.
+ * Uses SoundCloud as primary source to bypass YouTube datacenter bot-checks and save RAM on small containers.
  */
 const {
   joinVoiceChannel,
@@ -9,18 +10,29 @@ const {
   AudioPlayerStatus,
   VoiceConnectionStatus,
   entersState,
-  demuxProbe,
-  StreamType,
 } = require("@discordjs/voice");
-const { Ytdl, Client } = require("@distube/ytdl-core");
+const play = require("play-dl");
 const yts = require("yt-search");
 const { EmbedBuilder } = require("discord.js");
 
-// Initialize Ytdl with VisionOS and Tv clients to bypass player solver errors
-const ytdl = new Ytdl({
-  clients: [Client.VisionOS, Client.Tv, Client.WebEmbedded, Client.Mweb],
-});
 const queues = new Map();
+let soundCloudReady = false;
+
+async function ensureSoundCloud() {
+  if (soundCloudReady) return true;
+  try {
+    const clientId = await play.getFreeClientID();
+    await play.setToken({ soundcloud: { client_id: clientId } });
+    soundCloudReady = true;
+    return true;
+  } catch (err) {
+    console.warn("[SoundCloud Auth Warning]:", err.message);
+    return false;
+  }
+}
+
+// Pre-warm client ID in background
+ensureSoundCloud().catch(() => {});
 
 class GuildQueue {
   constructor(guildId, voiceChannel, textChannel) {
@@ -123,20 +135,37 @@ class GuildQueue {
 
       try {
         await entersState(this.connection, VoiceConnectionStatus.Ready, 5_000);
-      } catch (e) {
-        // Continue if connection is already transitioning
+      } catch (e) {}
+
+      let audioStream = null;
+      let streamType = "arbitrary";
+
+      if (song.source === "soundcloud" || song.url.includes("soundcloud.com")) {
+        await ensureSoundCloud();
+        const scStream = await play.stream(song.url);
+        audioStream = scStream.stream;
+        streamType = scStream.type;
+      } else {
+        // Try play-dl stream; if YouTube blocked by datacenter IP, fallback to SoundCloud
+        try {
+          const ytStream = await play.stream(song.url);
+          audioStream = ytStream.stream;
+          streamType = ytStream.type;
+        } catch (ytErr) {
+          await ensureSoundCloud();
+          const fallbackResults = await play.search(song.title, { source: { soundcloud: "tracks" }, limit: 1 }).catch(() => []);
+          if (fallbackResults && fallbackResults[0]) {
+            const scStream = await play.stream(fallbackResults[0].url);
+            audioStream = scStream.stream;
+            streamType = scStream.type;
+          } else {
+            throw ytErr;
+          }
+        }
       }
 
-      const stream = ytdl.download(song.url, {
-        filter: { hasAudio: true, hasVideo: false },
-        quality: "highestaudio",
-        highWaterMark: 1 << 25,
-      });
-
-      // Use demuxProbe to detect audio format (e.g. webm/opus) and create crystal clear audio resource
-      const { stream: probedStream, type } = await demuxProbe(stream);
-      const resource = createAudioResource(probedStream, {
-        inputType: type,
+      const resource = createAudioResource(audioStream, {
+        inputType: streamType,
         inlineVolume: true,
       });
 
@@ -186,31 +215,55 @@ class GuildQueue {
 }
 
 async function searchTrack(query) {
+  await ensureSoundCloud();
   try {
-    if (query.startsWith("http://") || query.startsWith("https://")) {
-      const res = await yts({ videoId: query.split("v=")[1]?.split("&")[0] || "" }).catch(() => null);
-      if (res) {
+    // 1. Direct SoundCloud URL
+    if (query.includes("soundcloud.com")) {
+      const info = await play.soundcloud(query).catch(() => null);
+      if (info) {
+        const mins = Math.floor(info.durationInSec / 60);
+        const secs = String(info.durationInSec % 60).padStart(2, "0");
         return {
-          title: res.title,
-          url: res.url,
-          duration: res.timestamp,
-          thumbnail: res.thumbnail,
+          title: info.name,
+          url: info.url,
+          duration: `${mins}:${secs}`,
+          thumbnail: info.thumbnail || null,
+          source: "soundcloud",
         };
       }
     }
-    const searchResult = await yts(query);
-    const video = searchResult.videos[0];
-    if (!video) return null;
-    return {
-      title: video.title,
-      url: video.url,
-      duration: video.timestamp,
-      thumbnail: video.thumbnail,
-    };
+
+    // 2. Search SoundCloud tracks (Fast, lightweight, no datacenter IP bot-check)
+    const scResults = await play.search(query, { source: { soundcloud: "tracks" }, limit: 5 }).catch(() => []);
+    if (scResults && scResults.length > 0) {
+      const best = scResults.find((t) => t.durationInSec > 60) || scResults[0];
+      const mins = Math.floor(best.durationInSec / 60);
+      const secs = String(best.durationInSec % 60).padStart(2, "0");
+      return {
+        title: best.name,
+        url: best.url,
+        duration: `${mins}:${secs}`,
+        thumbnail: best.thumbnail || null,
+        source: "soundcloud",
+      };
+    }
+
+    // 3. Fallback: yt-search
+    const searchResult = await yts(query).catch(() => null);
+    const video = searchResult?.videos?.[0];
+    if (video) {
+      return {
+        title: video.title,
+        url: video.url,
+        duration: video.timestamp,
+        thumbnail: video.thumbnail,
+        source: "youtube",
+      };
+    }
   } catch (err) {
     console.error("[searchTrack error]:", err);
-    return null;
   }
+  return null;
 }
 
 function getQueue(guildId) {

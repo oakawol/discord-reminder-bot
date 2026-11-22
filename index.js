@@ -75,7 +75,7 @@ client.commands = commands;
 
 // ─── Ready ────────────────────────────────────────────────────────────────────
 
-client.once("ready", () => {
+client.once("clientReady", () => {
   console.log(`[Bot] Logged in as ${client.user.tag}`);
 
   let statusIndex = 0;
