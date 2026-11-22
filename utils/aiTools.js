@@ -846,11 +846,12 @@ const aiToolDefinitions = [
         type: 'function',
         function: {
             name: 'music_play',
-            description: 'Plays a song or queues it in the voice channel. Can search by song title, artist, or music query (e.g. "Charlie Puth We Don\'t Talk Anymore", "Arijit Singh Kesariya", "Despacito").',
+            description: 'Plays a song in the voice channel. Can search by song title, artist, or music query. Set playNow to true if user wants to play it immediately / right now, or wants to skip the current playing song to play this one right away.',
             parameters: {
                 type: 'object',
                 properties: {
-                    query: { type: 'string', description: 'The song name, artist, or music search query' }
+                    query: { type: 'string', description: 'The song name, artist, or music search query' },
+                    playNow: { type: 'boolean', description: 'Set to true if user wants to play this song NOW / immediately, or wants to skip the current song to hear this one right now.' }
                 },
                 required: ['query']
             }
@@ -884,7 +885,7 @@ const aiToolDefinitions = [
         type: 'function',
         function: {
             name: 'music_skip',
-            description: 'Skips the currently playing song and advances to the next track in the queue.',
+            description: 'Skips the currently playing song in the voice channel and immediately starts playing the next track in the queue. Use whenever the user asks to "skip", "purana wala skip kardo", "next gana", "skip this song", "ye bajao ab".',
             parameters: { type: 'object', properties: {} }
         }
     },
@@ -1769,8 +1770,8 @@ async function executeTool(tName, args, message) {
             // ---- MUSIC TOOLS ----
             case 'music_play': {
                 if (!message.guild) return 'Error: Music can only be played inside a Discord server.';
-                const query = args.query;
-                if (!query) return 'Please specify a song title or artist to play.';
+                const rawQuery = (args.query || '').trim();
+                const playNow = Boolean(args.playNow);
 
                 let targetVoiceChannel = message.member?.voice?.channel;
                 const existingQueue = getQueue(message.guild.id);
@@ -1783,6 +1784,19 @@ async function executeTool(tName, args, message) {
                     return 'User is not in any voice channel. Tell them: "Arre bhai pehle kisi voice channel mein aao tabhi toh gaana baja paunga! 🎧 Join a voice channel first!"';
                 }
 
+                const queue = createOrGetQueue(message.guild.id, targetVoiceChannel, message.channel);
+
+                // If user said "play this song", "ye bajao ab", "skip karke ye bajao" without specifying a different title, and there is already an upcoming track in queue:
+                const isGenericNextSong = !rawQuery || /^(this(\s+song)?|ye(\s+gana|\s+song)?|is(\s+ko)?|current|purana\s+wala)$/i.test(rawQuery);
+                if (isGenericNextSong && queue.songs.length > 0) {
+                    const skipped = queue.currentSong?.title || 'current song';
+                    const nextSong = queue.songs[0];
+                    queue.player.stop();
+                    return `Skipped "${skipped}" and started playing "${nextSong.title}"${nextSong.artist ? ` by ${nextSong.artist}` : ''} immediately! 🔥`;
+                }
+
+                const query = isGenericNextSong && queue.songs.length > 0 ? queue.songs[0].title : (rawQuery || 'top hits');
+
                 const permissions = targetVoiceChannel.permissionsFor(message.client.user);
                 if (permissions && (!permissions.has(PermissionFlagsBits.Connect) || !permissions.has(PermissionFlagsBits.Speak))) {
                     return `Error: I don't have permissions to connect or speak in #${targetVoiceChannel.name}. Please grant Connect and Speak permissions.`;
@@ -1794,9 +1808,16 @@ async function executeTool(tName, args, message) {
                 }
 
                 track.requestedBy = message.author;
-                const queue = createOrGetQueue(message.guild.id, targetVoiceChannel, message.channel);
 
                 if (queue.isPlaying) {
+                    if (playNow) {
+                        // User requested to play this track immediately! Put at the top of queue and stop current playback to play right now
+                        queue.songs.unshift(track);
+                        const previousTitle = queue.currentSong?.title || 'current song';
+                        queue.player.stop();
+                        return `Immediately skipped "${previousTitle}" and started playing "${track.title}"${track.artist ? ` by ${track.artist}` : ""} in voice channel #${targetVoiceChannel.name}! 🔥`;
+                    }
+
                     queue.songs.push(track);
                     const embed = new EmbedBuilder()
                         .setTitle("📋 Added to Queue")
@@ -1809,7 +1830,7 @@ async function executeTool(tName, args, message) {
                         .setThumbnail(track.thumbnail || null)
                         .setColor("#00FF88");
                     message.channel.send({ embeds: [embed] }).catch(() => {});
-                    return `Added "${track.title}"${track.artist ? ` by ${track.artist}` : ""} to the queue at position #${queue.songs.length}!`;
+                    return `Added "${track.title}"${track.artist ? ` by ${track.artist}` : ""} to the queue at position #${queue.songs.length}! (If the user wants to play it immediately right now, tell them you can skip to it with "skip kardo" or "ye abhi bajao")`;
                 } else {
                     queue.songs.push(track);
                     await queue.playNext();

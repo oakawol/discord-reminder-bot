@@ -489,6 +489,59 @@ module.exports = async function onMessageCreate(message) {
     return message.reply(quickReply).catch(() => {});
   }
 
+  // Direct fast-path for Music Control intents (0ms latency, zero misunderstanding)
+  if (message.guild) {
+    const isSkipIntent = /\b(skip|purana\s+wala\s+skip|next\s+gana|agla\s+gana|skip\s+kar(do)?|skip\s+this|ye\s+bajao\s+ab|change\s+gana)\b/i.test(cleanPrompt);
+    const isPauseIntent = /^(pause|pause\s+kar(do)?|gana\s+rok\s+do|ruk\s+ja)$/i.test(cleanPrompt);
+    const isResumeIntent = /^(resume|resume\s+kar(do)?|unpause|chala\s+wapas|play\s+again)$/i.test(cleanPrompt);
+    const isStopIntent = /^(stop|stop\s+kar(do)?|gana\s+band\s+kar(do)?|leave(\s+voice)?|disconnect)$/i.test(cleanPrompt);
+    const isNowPlayingIntent = /^(kaunsa\s+gana|konsa\s+gana|what\s+song|now\s+playing|np|kya\s+baj\s+raha\s+hai)/i.test(cleanPrompt);
+
+    if (isSkipIntent || isPauseIntent || isResumeIntent || isStopIntent || isNowPlayingIntent) {
+      const q = getQueue(message.guild.id);
+      if (!q || (!q.currentSong && !q.isPlaying)) {
+        return message.reply("Arre bhai, abhi server mein koi gaana nahi chal raha hai! 🔇 Gaana sunna hai toh bas bolo: `@Oakawol play <song name>`! 🎶").catch(() => {});
+      }
+
+      if (isSkipIntent) {
+        const skipped = q.currentSong?.title || "current song";
+        const nextSong = q.songs[0];
+        q.player.stop();
+        const replyText = nextSong
+          ? `Skipped **${skipped}**! ⏭️ Abhi agla gaana **${nextSong.title}**${nextSong.artist ? ` by ${nextSong.artist}` : ""} chalu ho gaya hai bhai! 🔥`
+          : `Skipped **${skipped}**! ⏭️ Queue ab empty ho gaya hai. Koi naya gaana bajana ho toh batao! 😎`;
+        return message.reply(replyText).catch(() => {});
+      }
+
+      if (isPauseIntent) {
+        if (q.player.state.status === "paused") {
+          return message.reply("Song pehle se hi paused hai bhai! ⏸️").catch(() => {});
+        }
+        q.player.pause();
+        return message.reply("Song pause kar diya bhai! ⏸️ Jab dubara sunna ho toh bol dena `resume`!").catch(() => {});
+      }
+
+      if (isResumeIntent) {
+        if (q.player.state.status !== "paused") {
+          return message.reply("Song toh chal hi raha hai bhai, paused nahi tha! ▶️").catch(() => {});
+        }
+        q.player.unpause();
+        return message.reply("Playback resume kar diya! Full vibe chalu wapas ▶️🔥").catch(() => {});
+      }
+
+      if (isStopIntent) {
+        q.destroy();
+        return message.reply("Gana band kar diya, queue clear kar di aur voice channel se nikal gaya! ⏹️👋").catch(() => {});
+      }
+
+      if (isNowPlayingIntent) {
+        const s = q.currentSong;
+        const isPaused = q.player.state.status === "paused";
+        return message.reply(`Abhi voice channel **#${q.voiceChannel?.name || "voice"}** mein ${isPaused ? "PAUSED" : "PLAYING"}: **${s?.title || "Unknown"}**${s?.artist ? ` by ${s.artist}` : ""} (${s?.duration || "?"})! 🎶🔥`).catch(() => {});
+      }
+    }
+  }
+
   // Fetch conversation history for context (up to 20 messages for rich dialogue awareness)
   let conversationHistory = [];
   try {
@@ -716,11 +769,13 @@ Available bot commands (use via cmd_ tools):
 - cmd_flirt: Rizz up or flirt with a user. Pass args as "<userId>"
 MUSIC & VOICE CHAT CONTROLS (DIRECT AI MUSIC CONTROL):
 - You have full direct control over server voice channel music via dedicated tools:
-  • 'music_play': Play ANY song, artist, album, or vibe in the voice channel (e.g. query: "We Don't Talk Anymore", "Kesariya", "Arijit Singh", "Despacito"). If the user says "gana chala de", "play <song>", "koi gana lagao", "koi badhiya sad song chala", ALWAYS call 'music_play'!
+  • 'music_play': Play ANY song, artist, album, or vibe in the voice channel (e.g. query: "We Don't Talk Anymore", "Kesariya", "Arijit Singh", "Despacito").
+    - CRITICAL RULE: If the user says "ye bajao ab", "play this now", "purana wala skip kardo ye bajao", "skip karke ye chalao", or wants to skip the current track to play this song right away, ALWAYS set playNow: true!
+    - If user asks to queue it, set playNow: false.
+  • 'music_skip': Skips the current song in the voice channel and immediately starts playing the next song in the queue. ALWAYS call this when the user says "skip kardo", "purana wala skip kardo", "next gana chala", "skip this", "ye bajao ab"!
   • 'music_now_playing': Get live details about the song currently playing.
   • 'music_pause': Pause current song.
   • 'music_resume': Resume paused song.
-  • 'music_skip': Skip to next track in queue.
   • 'music_stop': Stop playback, clear queue, and leave voice channel.
   • 'music_queue': Show list of upcoming songs in queue.
 - If the user asks "kaunsa gana play kar rahe ho", "what song is playing", look at CURRENT MUSIC STATUS above or call 'music_now_playing' and tell them the exact track and channel in enthusiastic Hinglish!
