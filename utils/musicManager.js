@@ -34,6 +34,27 @@ async function ensureSoundCloud() {
 // Pre-warm client ID in background
 ensureSoundCloud().catch(() => {});
 
+/**
+ * Streams SoundCloud audio with quality: 0 (AAC 160kbps), avoiding deprecated abr_sq streams that return 404.
+ */
+async function getSafeSoundCloudStream(url) {
+  await ensureSoundCloud();
+  let lastError = null;
+  // Quality 0 is pristine 160kbps AAC which SoundCloud servers serve reliably with HTTP 200.
+  // Defaults to 0, then tries 1 (96kbps AAC) if 0 fails.
+  for (const quality of [0, 1]) {
+    try {
+      const stream = await play.stream(url, { quality });
+      if (stream && stream.stream) {
+        return stream;
+      }
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError || new Error("Failed to extract playable audio stream");
+}
+
 class GuildQueue {
   constructor(guildId, voiceChannel, textChannel) {
     this.guildId = guildId;
@@ -141,8 +162,7 @@ class GuildQueue {
       let streamType = "arbitrary";
 
       if (song.source === "soundcloud" || song.url.includes("soundcloud.com")) {
-        await ensureSoundCloud();
-        const scStream = await play.stream(song.url);
+        const scStream = await getSafeSoundCloudStream(song.url);
         audioStream = scStream.stream;
         streamType = scStream.type;
       } else {
@@ -152,10 +172,9 @@ class GuildQueue {
           audioStream = ytStream.stream;
           streamType = ytStream.type;
         } catch (ytErr) {
-          await ensureSoundCloud();
-          const fallbackResults = await play.search(song.title, { source: { soundcloud: "tracks" }, limit: 1 }).catch(() => []);
-          if (fallbackResults && fallbackResults[0]) {
-            const scStream = await play.stream(fallbackResults[0].url);
+          const fallbackTrack = await searchTrack(song.title);
+          if (fallbackTrack && fallbackTrack.source === "soundcloud") {
+            const scStream = await getSafeSoundCloudStream(fallbackTrack.url);
             audioStream = scStream.stream;
             streamType = scStream.type;
           } else {
@@ -221,31 +240,47 @@ async function searchTrack(query) {
     if (query.includes("soundcloud.com")) {
       const info = await play.soundcloud(query).catch(() => null);
       if (info) {
-        const mins = Math.floor(info.durationInSec / 60);
-        const secs = String(info.durationInSec % 60).padStart(2, "0");
-        return {
-          title: info.name,
-          url: info.url,
-          duration: `${mins}:${secs}`,
-          thumbnail: info.thumbnail || null,
-          source: "soundcloud",
-        };
+        const testStream = await getSafeSoundCloudStream(info.url).catch(() => null);
+        if (testStream) {
+          const mins = Math.floor(info.durationInSec / 60);
+          const secs = String(info.durationInSec % 60).padStart(2, "0");
+          return {
+            title: info.name,
+            url: info.url,
+            duration: `${mins}:${secs}`,
+            thumbnail: info.thumbnail || null,
+            source: "soundcloud",
+          };
+        }
       }
     }
 
     // 2. Search SoundCloud tracks (Fast, lightweight, no datacenter IP bot-check)
-    const scResults = await play.search(query, { source: { soundcloud: "tracks" }, limit: 5 }).catch(() => []);
+    const scResults = await play.search(query, { source: { soundcloud: "tracks" }, limit: 12 }).catch(() => []);
     if (scResults && scResults.length > 0) {
-      const best = scResults.find((t) => t.durationInSec > 60) || scResults[0];
-      const mins = Math.floor(best.durationInSec / 60);
-      const secs = String(best.durationInSec % 60).padStart(2, "0");
-      return {
-        title: best.name,
-        url: best.url,
-        duration: `${mins}:${secs}`,
-        thumbnail: best.thumbnail || null,
-        source: "soundcloud",
-      };
+      // Prioritize full tracks (> 60 seconds) over short 30-sec official previews
+      const fullTracks = scResults.filter((t) => t.durationInSec > 60);
+      const candidates = fullTracks.length > 0 ? [...fullTracks, ...scResults] : scResults;
+
+      for (const candidate of candidates) {
+        try {
+          const testStream = await getSafeSoundCloudStream(candidate.url);
+          if (testStream) {
+            const mins = Math.floor(candidate.durationInSec / 60);
+            const secs = String(candidate.durationInSec % 60).padStart(2, "0");
+            return {
+              title: candidate.name,
+              url: candidate.url,
+              duration: `${mins}:${secs}`,
+              thumbnail: candidate.thumbnail || null,
+              source: "soundcloud",
+            };
+          }
+        } catch (candidateErr) {
+          // Skip dead/404 tracks and test next candidate
+          continue;
+        }
+      }
     }
 
     // 3. Fallback: yt-search

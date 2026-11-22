@@ -460,13 +460,16 @@ module.exports = async function onMessageCreate(message) {
   const userConversationHistory = db.getUserConversation(message.author.id, 20);
 
   // Direct fast-path for live date, day, or time questions (100% accurate, 0ms latency, zero hallucination)
-  const cleanPrompt = prompt.toLowerCase().replace(/[?!.,]/g, "").trim();
-  const isDateQuery = /^(what\s+date\s+is\s+today|what\s+is\s+today\s*'?s\s+date|what\s+is\s+the\s+date|today\s*'?s\s+date|today\s+date|what\s+date|date|aaj\s+kya\s+date\s+hai|aaj\s+konsi\s+date\s+hai|aaj\s+kaunsi\s+date\s+hai|aaj\s+ki\s+date|aaj\s+ki\s+taarikh|aaj\s+kya\s+taarikh\s+hai|taarikh|tarikh)$/i.test(cleanPrompt) ||
-    /^(bhai\s+)?(aaj\s+(ki\s+)?date|what\s+is\s+(today'?s\s+)?date)(\s+bata(\s+na)?)?$/i.test(cleanPrompt);
+  const cleanPrompt = prompt.toLowerCase().replace(/[?!.,'"`]/g, "").trim();
+  const isDateQuery = /^(what\s+date\s+is\s+today|what\s+is\s+today\s*s\s+date|what\s+is\s+the\s+date|today\s*s\s+date|today\s+date|todays\s+date|what\s+date|date|aaj\s+kya\s+date\s+hai|aaj\s+konsi\s+date\s+hai|aaj\s+kaunsi\s+date\s+hai|aaj\s+ki\s+date|aaj\s+ki\s+taarikh|aaj\s+kya\s+taarikh\s+hai|taarikh|tarikh)$/i.test(cleanPrompt) ||
+    /^(bhai\s+)?(aaj\s+(ki\s+)?date|what\s+is\s+(todays?\s+)?date)(\s+bata(\s+na)?)?$/i.test(cleanPrompt) ||
+    /\b(what\s+date\s+is\s+(it|today)|todays?\s+date|aaj\s+k(ya|onsi|aunsi)\s+date|aaj\s+ki\s+date|date\s+kya\s+hai|date\s+bata)\b/i.test(cleanPrompt);
 
-  const isDayQuery = /^(what\s+day\s+is\s+today|what\s+day\s+is\s+it|what\s+is\s+today|today\s+day|day|aaj\s+kya\s+din\s+hai|aaj\s+konsa\s+din\s+hai|aaj\s+kaunsa\s+din\s+hai|din)$/i.test(cleanPrompt);
+  const isDayQuery = /^(what\s+day\s+is\s+today|what\s+day\s+is\s+it|what\s+is\s+today|today\s+day|todays\s+day|day|aaj\s+kya\s+din\s+hai|aaj\s+konsa\s+din\s+hai|aaj\s+kaunsa\s+din\s+hai|din)$/i.test(cleanPrompt) ||
+    /\b(what\s+day\s+is\s+(it|today)|aaj\s+k(ya|onsa|aunsa)\s+din|din\s+bata|aaj\s+ka\s+din)\b/i.test(cleanPrompt);
 
-  const isTimeQuery = /^(what\s+time\s+is\s+it|what\s+is\s+the\s+time|current\s+time|time|kya\s+time\s+ho\s+raha\s+hai|time\s+kya\s+hai|kitne\s+baje\s+hai|samay)$/i.test(cleanPrompt);
+  const isTimeQuery = /^(what\s+time\s+is\s+it|what\s+is\s+the\s+time|current\s+time|time|kya\s+time\s+ho\s+raha\s+hai|time\s+kya\s+hai|kitne\s+baje\s+hai|samay)$/i.test(cleanPrompt) ||
+    /\b(what\s+time\s+is\s+it|kya\s+time\s+(hai|hua)|kitne\s+baje\s+hai|current\s+time)\b/i.test(cleanPrompt);
 
   if (isDateQuery || isDayQuery || isTimeQuery) {
     const friendName = userProfile.preferredName ? `${userProfile.preferredName} bhai` : "bhai";
