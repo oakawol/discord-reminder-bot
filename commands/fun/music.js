@@ -68,27 +68,26 @@ module.exports = {
     const voiceChannel = member?.voice?.channel;
 
     if (sub === "play") {
+      await interaction.deferReply();
+
       if (!voiceChannel) {
-        return interaction.reply({
+        return interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("🎧 Voice Channel Required")
               .setDescription("Arre bhai, pehle kisi voice channel mein aao tabhi toh gaana bajega! Join a voice channel first.")
               .setColor("#FFA500"),
           ],
-          ephemeral: true,
         });
       }
 
       const permissions = voiceChannel.permissionsFor(interaction.client.user);
       if (!permissions.has("Connect") || !permissions.has("Speak")) {
-        return interaction.reply({
+        return interaction.editReply({
           content: "❌ Mere paas is voice channel mein aane ya bolne ki permission nahi hai! Please grant `Connect` and `Speak` permissions.",
-          ephemeral: true,
         });
       }
 
-      await interaction.deferReply();
       const query = interaction.options.getString("song");
       const track = await searchTrack(query);
 

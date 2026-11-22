@@ -1,7 +1,8 @@
 /**
  * utils/musicManager.js
- * Ultra-lightweight, memory-efficient voice music player using play-dl and @discordjs/voice.
- * Uses SoundCloud as primary source to bypass YouTube datacenter bot-checks and save RAM on small containers.
+ * Ultra-lightweight, memory-efficient voice music player for Discord.
+ * Uses JioSaavn as Primary Engine (free, unlimited, pristine 160kbps AAC, full song catalog)
+ * with SoundCloud and YouTube as intelligent fallbacks.
  */
 const {
   joinVoiceChannel,
@@ -9,14 +10,122 @@ const {
   createAudioResource,
   AudioPlayerStatus,
   VoiceConnectionStatus,
+  StreamType,
   entersState,
 } = require("@discordjs/voice");
 const play = require("play-dl");
 const yts = require("yt-search");
+const CryptoJS = require("crypto-js");
+const https = require("https");
+const http = require("http");
+const fs = require("fs");
+const { execSync } = require("child_process");
 const { EmbedBuilder } = require("discord.js");
+
+// Ensure FFmpeg is available on the container even if npm blocked install-scripts
+function ensureFfmpeg() {
+  try {
+    const ffmpegPath = require("ffmpeg-static");
+    if (!ffmpegPath || !fs.existsSync(ffmpegPath)) {
+      console.log("[Audio Init] ffmpeg binary missing. Auto-installing ffmpeg-static...");
+      execSync("node node_modules/ffmpeg-static/install.js", { stdio: "inherit" });
+      console.log("[Audio Init] ffmpeg binary installed successfully!");
+    }
+  } catch (err) {
+    console.warn("[Audio Init Warning]:", err.message);
+  }
+}
+ensureFfmpeg();
 
 const queues = new Map();
 let soundCloudReady = false;
+
+function decodeHtml(html) {
+  if (!html) return "";
+  return html
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function decryptMediaUrl(encrypted) {
+  try {
+    const key = CryptoJS.enc.Utf8.parse("38346591");
+    const decrypted = CryptoJS.DES.decrypt(
+      { ciphertext: CryptoJS.enc.Base64.parse(encrypted) },
+      key,
+      { mode: CryptoJS.mode.ECB, padding: CryptoJS.pad.Pkcs7 }
+    );
+    return decrypted.toString(CryptoJS.enc.Utf8);
+  } catch (e) {
+    return null;
+  }
+}
+
+async function searchJioSaavn(query) {
+  try {
+    const url =
+      "https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&_marker=0&api_version=4&ctx=web6dot0&q=" +
+      encodeURIComponent(query) +
+      "&n=8&p=1";
+    const headers = {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      Referer: "https://www.jiosaavn.com/",
+    };
+    const res = await fetch(url, { headers });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const results = json.results || [];
+    for (const song of results) {
+      const enc = song.more_info?.encrypted_media_url;
+      if (!enc) continue;
+      const rawUrl = decryptMediaUrl(enc);
+      if (!rawUrl) continue;
+      // 160kbps AAC provides CD quality while consuming minimal CPU & bandwidth
+      const streamUrl = rawUrl.replace("_96.", "_160.").replace("_320.", "_160.");
+      const durationSec = parseInt(song.more_info?.duration || 0);
+      const mins = Math.floor(durationSec / 60);
+      const secs = String(durationSec % 60).padStart(2, "0");
+      const thumb = (song.image || "").replace("150x150", "500x500");
+      const artist = decodeHtml(
+        song.more_info?.artistMap?.primary_artists?.[0]?.name || song.subtitle || ""
+      );
+      return {
+        title: decodeHtml(song.title),
+        artist: artist,
+        url: song.perma_url || streamUrl,
+        streamUrl: streamUrl,
+        duration: `${mins}:${secs}`,
+        thumbnail: thumb || null,
+        source: "jiosaavn",
+      };
+    }
+  } catch (err) {
+    console.warn("[JioSaavn Search Warning]:", err.message);
+  }
+  return null;
+}
+
+function getHttpAudioStream(url, maxRedirects = 5) {
+  return new Promise((resolve, reject) => {
+    const client = url.startsWith("https") ? https : http;
+    client
+      .get(url, { headers: { "User-Agent": "Mozilla/5.0" } }, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          if (maxRedirects <= 0) return reject(new Error("Too many redirects"));
+          return resolve(getHttpAudioStream(res.headers.location, maxRedirects - 1));
+        }
+        if (res.statusCode !== 200) {
+          return reject(new Error("HTTP status " + res.statusCode));
+        }
+        resolve(res);
+      })
+      .on("error", reject);
+  });
+}
 
 async function ensureSoundCloud() {
   if (soundCloudReady) return true;
@@ -31,17 +140,9 @@ async function ensureSoundCloud() {
   }
 }
 
-// Pre-warm client ID in background
-ensureSoundCloud().catch(() => {});
-
-/**
- * Streams SoundCloud audio with quality: 0 (AAC 160kbps), avoiding deprecated abr_sq streams that return 404.
- */
 async function getSafeSoundCloudStream(url) {
   await ensureSoundCloud();
   let lastError = null;
-  // Quality 0 is pristine 160kbps AAC which SoundCloud servers serve reliably with HTTP 200.
-  // Defaults to 0, then tries 1 (96kbps AAC) if 0 fails.
   for (const quality of [0, 1]) {
     try {
       const stream = await play.stream(url, { quality });
@@ -159,24 +260,25 @@ class GuildQueue {
       } catch (e) {}
 
       let audioStream = null;
-      let streamType = "arbitrary";
+      let streamType = StreamType.Arbitrary;
 
-      if (song.source === "soundcloud" || song.url.includes("soundcloud.com")) {
+      if (song.source === "jiosaavn" && song.streamUrl) {
+        audioStream = await getHttpAudioStream(song.streamUrl);
+        streamType = StreamType.Arbitrary;
+      } else if (song.source === "soundcloud" || song.url.includes("soundcloud.com")) {
         const scStream = await getSafeSoundCloudStream(song.url);
         audioStream = scStream.stream;
         streamType = scStream.type;
       } else {
-        // Try play-dl stream; if YouTube blocked by datacenter IP, fallback to SoundCloud
         try {
           const ytStream = await play.stream(song.url);
           audioStream = ytStream.stream;
           streamType = ytStream.type;
         } catch (ytErr) {
-          const fallbackTrack = await searchTrack(song.title);
-          if (fallbackTrack && fallbackTrack.source === "soundcloud") {
-            const scStream = await getSafeSoundCloudStream(fallbackTrack.url);
-            audioStream = scStream.stream;
-            streamType = scStream.type;
+          const saavnFallback = await searchJioSaavn(song.title);
+          if (saavnFallback) {
+            audioStream = await getHttpAudioStream(saavnFallback.streamUrl);
+            streamType = StreamType.Arbitrary;
           } else {
             throw ytErr;
           }
@@ -196,7 +298,7 @@ class GuildQueue {
 
       const embed = new EmbedBuilder()
         .setTitle("🎶 Now Playing")
-        .setDescription(`**[${song.title}](${song.url})**`)
+        .setDescription(`**[${song.title}](${song.url})**${song.artist ? `\n*${song.artist}*` : ""}`)
         .addFields(
           { name: "⏱️ Duration", value: song.duration || "Unknown", inline: true },
           { name: "👤 Requested By", value: `<@${song.requestedBy.id}>`, inline: true },
@@ -234,59 +336,33 @@ class GuildQueue {
 }
 
 async function searchTrack(query) {
-  await ensureSoundCloud();
-  try {
-    // 1. Direct SoundCloud URL
-    if (query.includes("soundcloud.com")) {
-      const info = await play.soundcloud(query).catch(() => null);
-      if (info) {
-        const testStream = await getSafeSoundCloudStream(info.url).catch(() => null);
-        if (testStream) {
-          const mins = Math.floor(info.durationInSec / 60);
-          const secs = String(info.durationInSec % 60).padStart(2, "0");
-          return {
-            title: info.name,
-            url: info.url,
-            duration: `${mins}:${secs}`,
-            thumbnail: info.thumbnail || null,
-            source: "soundcloud",
-          };
-        }
+  // 1. Direct SoundCloud URL
+  if (query.includes("soundcloud.com")) {
+    await ensureSoundCloud();
+    const info = await play.soundcloud(query).catch(() => null);
+    if (info) {
+      const testStream = await getSafeSoundCloudStream(info.url).catch(() => null);
+      if (testStream) {
+        const mins = Math.floor(info.durationInSec / 60);
+        const secs = String(info.durationInSec % 60).padStart(2, "0");
+        return {
+          title: info.name,
+          url: info.url,
+          duration: `${mins}:${secs}`,
+          thumbnail: info.thumbnail || null,
+          source: "soundcloud",
+        };
       }
     }
+  }
 
-    // 2. Search SoundCloud tracks (Fast, lightweight, no datacenter IP bot-check)
-    const scResults = await play.search(query, { source: { soundcloud: "tracks" }, limit: 12 }).catch(() => []);
-    if (scResults && scResults.length > 0) {
-      // Prioritize full tracks (> 60 seconds) over short 30-sec official previews
-      const fullTracks = scResults.filter((t) => t.durationInSec > 60);
-      const candidates = fullTracks.length > 0 ? [...fullTracks, ...scResults] : scResults;
-
-      for (const candidate of candidates) {
-        try {
-          const testStream = await getSafeSoundCloudStream(candidate.url);
-          if (testStream) {
-            const mins = Math.floor(candidate.durationInSec / 60);
-            const secs = String(candidate.durationInSec % 60).padStart(2, "0");
-            return {
-              title: candidate.name,
-              url: candidate.url,
-              duration: `${mins}:${secs}`,
-              thumbnail: candidate.thumbnail || null,
-              source: "soundcloud",
-            };
-          }
-        } catch (candidateErr) {
-          // Skip dead/404 tracks and test next candidate
-          continue;
-        }
-      }
-    }
-
-    // 3. Fallback: yt-search
+  // 2. Direct YouTube URL
+  if (query.includes("youtube.com") || query.includes("youtu.be")) {
     const searchResult = await yts(query).catch(() => null);
     const video = searchResult?.videos?.[0];
     if (video) {
+      const saavnMatch = await searchJioSaavn(video.title);
+      if (saavnMatch) return saavnMatch;
       return {
         title: video.title,
         url: video.url,
@@ -295,9 +371,53 @@ async function searchTrack(query) {
         source: "youtube",
       };
     }
-  } catch (err) {
-    console.error("[searchTrack error]:", err);
   }
+
+  // 3. Primary Music Engine: JioSaavn (Fast, high-fidelity 160k AAC, full song catalog, no bot blocks)
+  const saavnSong = await searchJioSaavn(query);
+  if (saavnSong) {
+    return saavnSong;
+  }
+
+  // 4. Secondary Fallback: SoundCloud
+  await ensureSoundCloud();
+  const scResults = await play.search(query, { source: { soundcloud: "tracks" }, limit: 10 }).catch(() => []);
+  if (scResults && scResults.length > 0) {
+    const fullTracks = scResults.filter((t) => t.durationInSec > 60);
+    const candidates = fullTracks.length > 0 ? [...fullTracks, ...scResults] : scResults;
+    for (const candidate of candidates) {
+      try {
+        const testStream = await getSafeSoundCloudStream(candidate.url);
+        if (testStream) {
+          const mins = Math.floor(candidate.durationInSec / 60);
+          const secs = String(candidate.durationInSec % 60).padStart(2, "0");
+          return {
+            title: candidate.name,
+            url: candidate.url,
+            duration: `${mins}:${secs}`,
+            thumbnail: candidate.thumbnail || null,
+            source: "soundcloud",
+          };
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+  }
+
+  // 5. Final Fallback: YouTube Search
+  const ytsRes = await yts(query).catch(() => null);
+  const v = ytsRes?.videos?.[0];
+  if (v) {
+    return {
+      title: v.title,
+      url: v.url,
+      duration: v.timestamp,
+      thumbnail: v.thumbnail,
+      source: "youtube",
+    };
+  }
+
   return null;
 }
 
