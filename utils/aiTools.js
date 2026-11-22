@@ -552,7 +552,7 @@ const aiToolDefinitions = [
         type: 'function',
         function: {
             name: 'get_meme',
-            description: 'Fetches a random hot meme from Reddit to post in the chat.',
+            description: 'Fetches a random trending, viral meme from Reddit (dankmemes, memes, wholesomememes) to post in the chat. Use this whenever the user asks for a meme, another meme ("aur koi meme"), or something funny!',
             parameters: { type: 'object', properties: {} }
         }
     },
@@ -592,30 +592,30 @@ const aiToolDefinitions = [
         type: 'function',
         function: {
             name: 'popcat_meme',
-            description: 'Generates meme images using PopCat API: Minecraft achievement, fake tweet, wanted poster, jail overlay, or Pooh meme.',
+            description: 'Generates custom meme images: drake, pooh, pikachu, oogway, sadcat, unforgivable, or avatar overlays (pet, jail, wanted, clown, gun, communism).',
             parameters: {
                 type: 'object',
                 properties: {
                     template: {
                         type: 'string',
-                        enum: ['achievement', 'tweet', 'wanted', 'jail', 'pooh'],
+                        enum: ['drake', 'pooh', 'pikachu', 'oogway', 'sadcat', 'unforgivable', 'pet', 'jail', 'wanted', 'clown', 'gun', 'communism'],
                         description: 'The meme template to generate.'
                     },
                     text: {
                         type: 'string',
-                        description: 'The text for achievement, tweet, or pooh (e.g. for pooh use "top text | bottom text").'
+                        description: 'Text for the meme. For drake or pooh use "top text | bottom text".'
                     },
-                    user: {
+                    text1: {
                         type: 'string',
-                        description: 'Display name for tweet (optional).'
+                        description: 'Top/First line for drake or pooh.'
                     },
-                    username: {
+                    text2: {
                         type: 'string',
-                        description: 'Twitter handle for tweet (optional).'
+                        description: 'Bottom/Second line for drake or pooh.'
                     },
                     targetUserId: {
                         type: 'string',
-                        description: 'Discord user ID of the person to put in wanted/jail (optional, defaults to author).'
+                        description: 'Discord user ID of the person for avatar templates (pet, jail, wanted, clown, gun, communism). Defaults to author.'
                     }
                 },
                 required: ['template']
@@ -1291,14 +1291,24 @@ async function executeTool(tName, args, message) {
                 return `I flipped a coin... it's **${result}**!`;
             }
             case 'get_meme': {
-                const res = await fetch('https://www.reddit.com/r/memes/hot.json?limit=25').then(r => r.json()).catch(() => null);
-                if (!res?.data?.children) return `Couldn't load memes right now. 🧊`;
-                const posts = res.data.children.filter(p => p.data.url.match(/\.(jpg|png|gif)$/i));
-                if (!posts.length) return `No image memes found. 🧊`;
-                const post = posts[Math.floor(Math.random() * posts.length)].data;
-                const embed = new EmbedBuilder().setTitle(post.title).setImage(post.url).setURL(`https://reddit.com${post.permalink}`).setColor('#FF4500');
-                await message.channel.send({ embeds: [embed] });
-                return `Meme deployed! 😂`;
+                try {
+                    const subreddits = ['memes', 'dankmemes', 'wholesomememes', 'me_irl'];
+                    const chosenSub = subreddits[Math.floor(Math.random() * subreddits.length)];
+                    const res = await fetch(`https://meme-api.com/gimme/${chosenSub}`).then(r => r.json()).catch(() => null);
+                    if (res && res.url && !res.nsfw) {
+                        const embed = new EmbedBuilder()
+                            .setTitle(res.title || 'Fresh Meme 😂')
+                            .setImage(res.url)
+                            .setURL(res.postLink || 'https://reddit.com')
+                            .setFooter({ text: `r/${res.subreddit} • 👍 ${res.ups || 0}` })
+                            .setColor('#FF4500');
+                        await message.channel.send({ embeds: [embed] });
+                        return `Here is a fresh trending meme from r/${res.subreddit}: "${res.title}"!`;
+                    }
+                } catch (e) {
+                    console.warn('[get_meme Error]', e.message);
+                }
+                return `Couldn't load a meme right now. 🧊`;
             }
             case 'get_weather': {
                 const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(args.city)}&count=1`).then(r => r.json()).catch(() => null);
@@ -1330,7 +1340,7 @@ async function executeTool(tName, args, message) {
                 const data = await fetch(endpoint).then(r => r.json()).catch(() => null);
                 if (!data) return `Failed to fetch from PopCat API. 🧊`;
 
-                const text = data.joke || data.fact || data.thought || data.pickupline;
+                const text = data.joke || data.fact || data.result || data.thought || data.pickupline;
                 const embed = new EmbedBuilder()
                     .setTitle(`🐱 PopCat ${args.type.toUpperCase()}`)
                     .setDescription(`> ${text}`)
@@ -1341,11 +1351,18 @@ async function executeTool(tName, args, message) {
             case 'popcat_meme': {
                 let imgUrl = '';
                 const titleMap = {
-                    achievement: '🏆 Achievement Get!',
-                    tweet: '🐦 Twitter / X',
-                    wanted: '🤠 WANTED: Dead or Alive',
-                    jail: '🚔 Off to Jail!',
+                    drake: '🦆 Drake Meme',
                     pooh: '🐻 Tuxedo Pooh',
+                    pikachu: '⚡ Surprised Pikachu',
+                    oogway: '🐢 Master Oogway Wisdom',
+                    sadcat: '😿 Sad Cat',
+                    unforgivable: '💀 Unforgivable Sin',
+                    pet: '🐾 Pet Pet!',
+                    jail: '🚔 Off to Jail!',
+                    wanted: '🤠 WANTED: Dead or Alive',
+                    clown: '🤡 Certified Clown',
+                    gun: '🔫 Hold Up!',
+                    communism: '☭ Our Meme Comrade',
                 };
 
                 let targetUser = message.author;
@@ -1356,49 +1373,110 @@ async function executeTool(tName, args, message) {
                 }
                 const avatar = targetUser.displayAvatarURL({ extension: 'png', size: 512 });
 
-                if (args.template === 'achievement') {
-                    const text = encodeURIComponent(args.text || 'Unlocked Something Cool');
-                    imgUrl = `https://api.popcat.xyz/achievement?text=${text}`;
-                } else if (args.template === 'tweet') {
-                    const dName = encodeURIComponent(args.user || targetUser.displayName || targetUser.username);
-                    const uName = encodeURIComponent(args.username || targetUser.username);
-                    const tweetText = encodeURIComponent(args.text || 'Thinking about bots...');
-                    imgUrl = `https://api.popcat.xyz/tweet?user=${dName}&username=${uName}&avatar=${encodeURIComponent(avatar)}&text=${tweetText}`;
-                } else if (args.template === 'wanted') {
-                    imgUrl = `https://api.popcat.xyz/wanted?image=${encodeURIComponent(avatar)}`;
-                } else if (args.template === 'jail') {
+                // Split text helper for multi-line memes like Drake or Pooh
+                let text1 = args.text1 || '';
+                let text2 = args.text2 || '';
+                if (args.text && (!text1 || !text2)) {
+                    const parts = args.text.split('|');
+                    if (parts.length >= 2) {
+                        text1 = text1 || parts[0].trim();
+                        text2 = text2 || parts[1].trim();
+                    } else {
+                        text1 = text1 || args.text.trim();
+                        text2 = text2 || 'Doing it anyway';
+                    }
+                }
+
+                const t = (args.template || 'drake').toLowerCase();
+                if (t === 'drake') {
+                    imgUrl = `https://api.popcat.xyz/drake?text1=${encodeURIComponent(text1 || 'Nah')}&text2=${encodeURIComponent(text2 || 'Yeah')}`;
+                } else if (t === 'pooh') {
+                    imgUrl = `https://api.popcat.xyz/pooh?text1=${encodeURIComponent(text1 || 'Normal')}&text2=${encodeURIComponent(text2 || 'Tuxedo')}`;
+                } else if (t === 'pikachu') {
+                    imgUrl = `https://api.popcat.xyz/pikachu?text=${encodeURIComponent(args.text || text1 || 'Wait, what?!')}`;
+                } else if (t === 'oogway') {
+                    imgUrl = `https://api.popcat.xyz/oogway?text=${encodeURIComponent(args.text || text1 || 'Yesterday is history, tomorrow is a mystery...')}`;
+                } else if (t === 'sadcat') {
+                    imgUrl = `https://api.popcat.xyz/sadcat?text=${encodeURIComponent(args.text || text1 || 'Why is life like this?')}`;
+                } else if (t === 'unforgivable') {
+                    imgUrl = `https://api.popcat.xyz/unforgivable?text=${encodeURIComponent(args.text || text1 || 'Some sins can never be forgiven')}`;
+                } else if (t === 'pet') {
+                    imgUrl = `https://api.popcat.xyz/pet?image=${encodeURIComponent(avatar)}`;
+                } else if (t === 'jail') {
                     imgUrl = `https://api.popcat.xyz/jail?image=${encodeURIComponent(avatar)}`;
-                } else if (args.template === 'pooh') {
-                    const parts = (args.text || 'Normal text | Tuxedo text').split('|');
-                    const text1 = encodeURIComponent((parts[0] || '').trim());
-                    const text2 = encodeURIComponent((parts[1] || '').trim());
-                    imgUrl = `https://api.popcat.xyz/pooh?text1=${text1}&text2=${text2}`;
+                } else if (t === 'wanted') {
+                    imgUrl = `https://api.popcat.xyz/wanted?image=${encodeURIComponent(avatar)}`;
+                } else if (t === 'clown') {
+                    imgUrl = `https://api.popcat.xyz/clown?image=${encodeURIComponent(avatar)}`;
+                } else if (t === 'gun') {
+                    imgUrl = `https://api.popcat.xyz/gun?image=${encodeURIComponent(avatar)}`;
+                } else if (t === 'communism') {
+                    imgUrl = `https://api.popcat.xyz/communism?image=${encodeURIComponent(avatar)}`;
+                } else {
+                    // Default fallback to drake or pooh
+                    imgUrl = `https://api.popcat.xyz/drake?text1=${encodeURIComponent(text1 || 'Nah')}&text2=${encodeURIComponent(text2 || 'Yeah')}`;
                 }
 
                 if (!imgUrl) return 'Could not generate meme image.';
 
                 const embed = new EmbedBuilder()
-                    .setTitle(titleMap[args.template] || 'Meme Generated')
+                    .setTitle(titleMap[t] || 'Meme Generated 😂')
                     .setImage(imgUrl)
                     .setColor('#FF4500');
                 await message.channel.send({ embeds: [embed] });
-                return `Generated ${args.template} meme successfully!`;
+                return `Generated ${t} meme successfully!`;
             }
             case 'popcat_lyrics': {
-                const song = encodeURIComponent(args.song);
-                const data = await fetch(`https://api.popcat.xyz/lyrics?song=${song}`).then(r => r.json()).catch(() => null);
-                if (!data || data.error || !data.lyrics) {
-                    return `Could not find lyrics for "${args.song}". 🧊`;
+                const song = args.song;
+                let lyricsData = null;
+
+                // 1. Try Popcat API
+                try {
+                    const popData = await fetch(`https://api.popcat.xyz/lyrics?song=${encodeURIComponent(song)}`).then(r => r.json()).catch(() => null);
+                    if (popData && !popData.error && popData.lyrics) {
+                        lyricsData = {
+                            title: popData.title || song,
+                            artist: popData.artist || 'Unknown Artist',
+                            lyrics: popData.lyrics,
+                            image: popData.image || null
+                        };
+                    }
+                } catch (e) {}
+
+                // 2. High-reliability fallback to LRCLIB (covers English, Hindi, Bollywood, Global)
+                if (!lyricsData) {
+                    try {
+                        const lrcRes = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(song)}`, {
+                            headers: { 'User-Agent': 'OakawolBot/1.0' }
+                        }).then(r => r.json()).catch(() => null);
+
+                        if (Array.isArray(lrcRes) && lrcRes.length > 0) {
+                            const match = lrcRes.find(s => s.plainLyrics) || lrcRes[0];
+                            if (match && match.plainLyrics) {
+                                lyricsData = {
+                                    title: match.trackName,
+                                    artist: match.artistName,
+                                    lyrics: match.plainLyrics,
+                                    image: null
+                                };
+                            }
+                        }
+                    } catch (e) {}
                 }
 
-                const trimmedLyrics = data.lyrics.length > 2000 ? data.lyrics.substring(0, 1990) + '...' : data.lyrics;
+                if (!lyricsData) {
+                    return `Could not find lyrics for "${song}". 🧊`;
+                }
+
+                const trimmedLyrics = lyricsData.lyrics.length > 2000 ? lyricsData.lyrics.substring(0, 1990) + '...' : lyricsData.lyrics;
                 const embed = new EmbedBuilder()
-                    .setTitle(`🎵 ${data.title} - ${data.artist}`)
+                    .setTitle(`🎵 ${lyricsData.title} - ${lyricsData.artist}`)
                     .setDescription(trimmedLyrics)
-                    .setThumbnail(data.image || null)
                     .setColor('#1DB954');
+                if (lyricsData.image) embed.setThumbnail(lyricsData.image);
+
                 await message.channel.send({ embeds: [embed] });
-                return `Found lyrics for "${data.title}" by ${data.artist}!`;
+                return `Found lyrics for "${lyricsData.title}" by ${lyricsData.artist}!`;
             }
             case 'translate_text': {
                 const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(args.text)}&langpair=en|${args.target_lang}`).then(r => r.json()).catch(() => null);

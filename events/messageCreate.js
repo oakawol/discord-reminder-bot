@@ -660,10 +660,11 @@ MANDATORY REAL-TIME SEARCH (MOVIES, CRICKET, NEWS & CURRENT EVENTS):
 
 EXTERNAL APIS & TOOLS:
 - Open-Meteo Weather: Check live weather and forecasts with 'get_weather'.
-- PopCat API: You have awesome meme & fun tools via:
+- Memes & Entertainment:
+  • 'get_meme': fetches random viral trending memes from Reddit (r/dankmemes, r/memes). Use this whenever someone says "meme", "meme dikhao", "aur koi meme", "send a meme"!
+  • 'popcat_meme': generate hilarious custom memes: 'drake' (No vs Yes), 'pooh' (Tuxedo Pooh), 'pikachu' (Surprised Pikachu), 'oogway' (Wisdom quote), 'sadcat', 'unforgivable', or avatar fun: 'pet' (animated petting GIF!), 'jail' (prison bars), 'wanted' (poster), 'clown', 'gun', 'communism'.
   • 'popcat_fun': fetch fresh jokes, random facts, shower thoughts, and pickup lines.
-  • 'popcat_meme': generate real meme images (Minecraft achievements, fake tweets, wanted posters, jail, pooh memes).
-  • 'popcat_lyrics': look up song lyrics and artist info.
+  • 'popcat_lyrics': look up song lyrics and artist info for ANY song (Bollywood, Hindi, English, Rap, Pop).
 - Web Intelligence & Tavily: You have live search via 'tavily_search', 'search_google', 'fetch_webpage', 'search_reddit', and 'get_crypto_price'. Always search if someone asks about live events, cricket, sports, recent drama, or current facts!${userProfilePrompt}${memoryPrompt}
 
 MEMORY & PERSONAL CONNECTION:
