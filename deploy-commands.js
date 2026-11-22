@@ -233,6 +233,69 @@ const commands = [
       { name: "list", description: "See all saved UPI records on this server", type: 1 },
     ],
   },
+
+  // ── Fun, Music & Roasts ─────────────────────────────────────────────────────
+  {
+    name: "roast",
+    description: "Cook someone with a savage, witty desi Hinglish roast! 🔥",
+    options: [
+      { name: "user", description: "The user you want to roast", type: 6, required: true },
+      {
+        name: "style",
+        description: "Roast flavour / style",
+        type: 3,
+        required: false,
+        choices: [
+          { name: "🔥 Savage Desi (Full Tabahi)", value: "savage" },
+          { name: "🎓 College & Hostel Vibe", value: "college" },
+          { name: "🎮 Gaming Noob", value: "gaming" },
+        ],
+      },
+    ],
+  },
+  {
+    name: "flirt",
+    description: "Rizz up someone with smooth desi shayari, pickup lines, or Bollywood charm! 🌹",
+    options: [
+      { name: "user", description: "The person you want to rizz up or flirt with", type: 6, required: true },
+      {
+        name: "style",
+        description: "Flirt flavour / style",
+        type: 3,
+        required: false,
+        choices: [
+          { name: "✨ Desi Shayari & Romantic", value: "shayari" },
+          { name: "😎 Smooth Discord Rizz", value: "rizz" },
+          { name: "🎬 Cheesy Bollywood Hero", value: "bollywood" },
+        ],
+      },
+    ],
+  },
+  {
+    name: "music",
+    description: "Play music in voice channels, manage playback, and queue up songs.",
+    options: [
+      {
+        name: "play",
+        description: "Play a song or add it to the queue in your voice channel.",
+        type: 1,
+        options: [
+          {
+            name: "song",
+            description: "Song title, artist, or YouTube URL (e.g. 'aankho se' or 'tum hi ho')",
+            type: 3,
+            required: true,
+          },
+        ],
+      },
+      { name: "pause", description: "Pause the currently playing song.", type: 1 },
+      { name: "resume", description: "Resume playback of the paused song.", type: 1 },
+      { name: "skip", description: "Skip to the next song in the queue.", type: 1 },
+      { name: "stop", description: "Stop music playback, clear the queue, and leave voice channel.", type: 1 },
+      { name: "queue", description: "View the list of upcoming songs in the server queue.", type: 1 },
+      { name: "nowplaying", description: "Show information about the currently playing song.", type: 1 },
+    ],
+  },
 ];
 
 const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);

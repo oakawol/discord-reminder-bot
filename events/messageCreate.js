@@ -568,7 +568,7 @@ module.exports = async function onMessageCreate(message) {
     // Explicitly add command tools so Groq and Gemini tool validation passes
     const cmdTools = [
       "add_money", "remove_money", "balance", "history", "imagine", "remind",
-      "taskping", "text", "verify", "memory", "cd", "remove_cd"
+      "taskping", "text", "verify", "memory", "cd", "remove_cd", "roast", "flirt", "music"
     ];
     for (const cmdName of cmdTools) {
       dynamicTools.push({
@@ -683,6 +683,9 @@ Available bot commands (use via cmd_ tools):
 - cmd_verify: Verify if a link is working (Admin only).
 - cmd_imagine: Create AI art. Pass args as the image description.
 - cmd_remind: Schedule a reminder. Pass args as "<duration> <note>" (e.g. "10m check oven")
+- cmd_roast: Roast a user. Pass args as "<userId>"
+- cmd_flirt: Rizz up or flirt with a user. Pass args as "<userId>"
+- cmd_music: Play or manage voice channel music. Pass args as "play <song title>" or "skip" or "pause" or "stop"
 
 User messages are prefixed with their username (e.g. Username: message) so you know who is talking.
 Always extract the user's Discord ID from mentions like <@123456789> and include it in args.
