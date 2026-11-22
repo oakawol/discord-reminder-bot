@@ -10,6 +10,7 @@ const {
   createAudioResource,
   AudioPlayerStatus,
   VoiceConnectionStatus,
+  NoSubscriberBehavior,
   StreamType,
   entersState,
 } = require("@discordjs/voice");
@@ -26,10 +27,18 @@ const { EmbedBuilder } = require("discord.js");
 function ensureFfmpeg() {
   try {
     const ffmpegPath = require("ffmpeg-static");
-    if (!ffmpegPath || !fs.existsSync(ffmpegPath)) {
-      console.log("[Audio Init] ffmpeg binary missing. Auto-installing ffmpeg-static...");
-      execSync("node node_modules/ffmpeg-static/install.js", { stdio: "inherit" });
-      console.log("[Audio Init] ffmpeg binary installed successfully!");
+    if (ffmpegPath) {
+      process.env.FFMPEG_PATH = ffmpegPath;
+      if (!fs.existsSync(ffmpegPath)) {
+        console.log("[Audio Init] ffmpeg binary missing on disk. Auto-installing ffmpeg-static...");
+        execSync("node node_modules/ffmpeg-static/install.js", { stdio: "inherit" });
+      }
+      if (fs.existsSync(ffmpegPath)) {
+        try {
+          fs.chmodSync(ffmpegPath, 0o755);
+        } catch (e) {}
+        console.log(`[Audio Init] ✅ FFmpeg binary verified: ${ffmpegPath}`);
+      }
     }
   } catch (err) {
     console.warn("[Audio Init Warning]:", err.message);
@@ -164,12 +173,26 @@ class GuildQueue {
     this.songs = [];
     this.currentSong = null;
     this.isPlaying = false;
-    this.player = createAudioPlayer();
+    this.player = createAudioPlayer({
+      behaviors: {
+        noSubscriber: NoSubscriberBehavior.Play,
+        maxMissedFrames: 100,
+      },
+    });
     this.connection = null;
     this.idleTimer = null;
 
     this.player.on(AudioPlayerStatus.Idle, () => {
+      console.log(`[Music Player ${this.guildId}] Player became Idle, playing next track...`);
       this.playNext();
+    });
+
+    this.player.on("stateChange", (oldState, newState) => {
+      console.log(`[Music Player ${this.guildId}] State: ${oldState.status} -> ${newState.status}`);
+      if (newState.status === AudioPlayerStatus.AutoPaused) {
+        console.log(`[Music Player ${this.guildId}] AutoPaused detected, unpausing...`);
+        this.player.unpause();
+      }
     });
 
     this.player.on("error", (error) => {
@@ -197,11 +220,21 @@ class GuildQueue {
         channelId: this.voiceChannel.id,
         guildId: this.guildId,
         adapterCreator: this.voiceChannel.guild.voiceAdapterCreator,
-        selfDeaf: true,
+        selfDeaf: false,
         selfMute: false,
       });
 
-      this.connection.subscribe(this.player);
+      this.connection.on("stateChange", (oldState, newState) => {
+        console.log(`[Voice Connection ${this.guildId}] State: ${oldState.status} -> ${newState.status}`);
+        if (newState.status === VoiceConnectionStatus.Ready) {
+          console.log(`[Voice Connection ${this.guildId}] Connection READY! Subscribing player...`);
+          this.connection.subscribe(this.player);
+        }
+      });
+
+      this.connection.on("error", (err) => {
+        console.error(`[Voice Connection Error in ${this.guildId}]:`, err.message);
+      });
 
       this.connection.on(VoiceConnectionStatus.Disconnected, async () => {
         try {
@@ -255,9 +288,14 @@ class GuildQueue {
     try {
       this.connect();
 
+      // Ensure voice connection is completely Ready before streaming audio packets
       try {
-        await entersState(this.connection, VoiceConnectionStatus.Ready, 5_000);
-      } catch (e) {}
+        await entersState(this.connection, VoiceConnectionStatus.Ready, 10_000);
+      } catch (connErr) {
+        console.warn(`[Voice Warning] Connection did not reach Ready within 10s: ${connErr.message}`);
+      }
+
+      this.connection.subscribe(this.player);
 
       let audioStream = null;
       let streamType = StreamType.Arbitrary;
@@ -290,11 +328,20 @@ class GuildQueue {
         inlineVolume: true,
       });
 
+      resource.playStream.on("error", (streamErr) => {
+        console.error(`[Resource PlayStream Error in ${this.guildId}]:`, streamErr.message);
+      });
+
       if (resource.volume) {
         resource.volume.setVolume(1.0);
       }
 
+      this.connection.subscribe(this.player);
       this.player.play(resource);
+
+      if (this.player.state.status === AudioPlayerStatus.AutoPaused) {
+        this.player.unpause();
+      }
 
       const embed = new EmbedBuilder()
         .setTitle("🎶 Now Playing")
