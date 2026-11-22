@@ -1,6 +1,6 @@
 const { EmbedBuilder, AttachmentBuilder, PermissionFlagsBits } = require('discord.js');
 const db = require('./database');
-const { searchTrack, searchMultipleTracks, getQueue, createOrGetQueue } = require('./musicManager');
+const { searchTrack, searchMultipleTracks, getQueue, createOrGetQueue, MOOD_VIBE_MAP, resolveMoodVibe } = require('./musicManager');
 
 const aiToolDefinitions = [
     // Moderation & Interaction
@@ -904,6 +904,43 @@ const aiToolDefinitions = [
             name: 'music_queue',
             description: 'Lists all upcoming tracks currently in the server\'s music queue.',
             parameters: { type: 'object', properties: {} }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'music_vibe_dj',
+            description: 'Intelligently drops and queues curated tracks based on a mood, vibe, or real-life situation (e.g. lofi study, gym workout phonk, late night drive, heartbreak/sad, romantic, gaming clutch, punjabi swag/drill).',
+            parameters: {
+                type: 'object',
+                properties: {
+                    vibe: { type: 'string', description: 'The mood or situation (e.g. "lofi", "gym phonk", "late night drive", "sad", "party", "romantic", "punjabi")' },
+                    count: { type: 'integer', description: 'Number of tracks to queue (default: 3, max: 6)' }
+                },
+                required: ['vibe']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'music_user_favorites',
+            description: 'Plays or queues the user\'s personal favorite music based on their listening history and preferred artists/genres (used for "mera favorite gaana chala", "surprise me", "kuch mere taste ka bajao").',
+            parameters: { type: 'object', properties: {} }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'music_autoplay',
+            description: 'Enables or disables smart infinite autoplay for voice channel music so playback never abruptly stops when the queue finishes.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    enabled: { type: 'boolean', description: 'true to enable infinite autoplay, false to disable' }
+                },
+                required: ['enabled']
+            }
         }
     }
 ];
@@ -1930,6 +1967,110 @@ async function executeTool(tName, args, message) {
                     text += `Upcoming (${upcoming.length}):\n` + upcoming.slice(0, 5).map((t, i) => `${i + 1}. "${t.title}" (${t.duration || '?'})`).join('\n');
                 }
                 return text;
+            }
+            case 'music_vibe_dj': {
+                if (!message.guild) return 'Error: Music is only available inside a Discord server.';
+                const rawVibe = (args.vibe || '').trim();
+                const count = Math.min(Math.max(parseInt(args.count) || 3, 1), 7);
+                const vibeData = resolveMoodVibe(rawVibe);
+
+                let targetVoiceChannel = message.member?.voice?.channel;
+                const existingQueue = getQueue(message.guild.id);
+                if (!targetVoiceChannel && existingQueue?.voiceChannel) {
+                    targetVoiceChannel = existingQueue.voiceChannel;
+                }
+                if (!targetVoiceChannel) {
+                    return 'User is not in any voice channel. Tell them to join a voice channel first!';
+                }
+
+                const queue = createOrGetQueue(message.guild.id, targetVoiceChannel, message.channel);
+                const seedQuery = vibeData
+                    ? vibeData.seeds[Math.floor(Math.random() * vibeData.seeds.length)]
+                    : `${rawVibe} hits`;
+
+                const tracks = await searchMultipleTracks(seedQuery, count);
+                if (!tracks || tracks.length === 0) {
+                    return `Could not find tracks matching vibe "${rawVibe}". Try another mood!`;
+                }
+
+                for (const t of tracks) {
+                    t.requestedBy = message.author;
+                }
+
+                const vibeName = vibeData ? `${vibeData.emoji} ${vibeData.name}` : `🎧 ${rawVibe.toUpperCase()} Vibe`;
+                if (!queue.isPlaying) {
+                    const first = tracks.shift();
+                    queue.songs.push(first);
+                    for (const t of tracks) queue.songs.push(t);
+                    await queue.playNext();
+                } else {
+                    for (const t of tracks) queue.songs.push(t);
+                }
+
+                const embed = new EmbedBuilder()
+                    .setTitle(`🎧 AI DJ: ${vibeName}`)
+                    .setDescription(`Queued **${tracks.length + (queue.isPlaying ? 0 : 1)} tracks** for your mood:\n` +
+                        (queue.currentSong ? `▶️ Now Playing: **${queue.currentSong.title}**\n\n` : '') +
+                        tracks.slice(0, 5).map((t, idx) => `${idx + 1}. **[${t.title}](${t.url})**${t.artist ? ` • *${t.artist}*` : ''}`).join('\n'))
+                    .setColor("#FF0055");
+                message.channel.send({ embeds: [embed] }).catch(() => {});
+
+                return `AI DJ set the mood for "${vibeName}"! Queued ${tracks.length} tracks in #${targetVoiceChannel.name}! 🔥`;
+            }
+            case 'music_user_favorites': {
+                if (!message.guild) return 'Error: Music is only available inside a Discord server.';
+                const taste = db.getUserMusicTaste(message.author.id);
+                const targetVoiceChannel = message.member?.voice?.channel || getQueue(message.guild.id)?.voiceChannel;
+                if (!targetVoiceChannel) {
+                    return 'User is not in any voice channel. Tell them to join a voice channel first!';
+                }
+
+                const queue = createOrGetQueue(message.guild.id, targetVoiceChannel, message.channel);
+                let query = "Arijit Singh";
+                let reason = "crowd-pleaser Indian hits";
+
+                if (taste.topArtists && taste.topArtists.length > 0) {
+                    query = taste.topArtists[Math.floor(Math.random() * taste.topArtists.length)];
+                    reason = `your all-time top artist ${query}`;
+                } else if (taste.recentSongs && taste.recentSongs.length > 0) {
+                    query = taste.recentSongs[0].title;
+                    reason = `your recent favorite ${query}`;
+                }
+
+                const tracks = await searchMultipleTracks(query, 3);
+                if (!tracks || tracks.length === 0) {
+                    return `Could not find tracks for your favorites. Try picking a specific artist!`;
+                }
+
+                for (const t of tracks) t.requestedBy = message.author;
+
+                if (!queue.isPlaying) {
+                    const first = tracks.shift();
+                    queue.songs.push(first);
+                    for (const t of tracks) queue.songs.push(t);
+                    await queue.playNext();
+                } else {
+                    for (const t of tracks) queue.songs.push(t);
+                }
+
+                const embed = new EmbedBuilder()
+                    .setTitle(`🧠 AI Music Memory: Personal Taste`)
+                    .setDescription(`Queued tracks based on **${reason}** for <@${message.author.id}>:\n` +
+                        tracks.map((t, i) => `${i + 1}. **[${t.title}](${t.url})**${t.artist ? ` • *${t.artist}*` : ''}`).join('\n'))
+                    .setColor("#00FF88");
+                message.channel.send({ embeds: [embed] }).catch(() => {});
+
+                return `Loaded personal favorites for ${message.author.username} based on ${reason}! 🎧`;
+            }
+            case 'music_autoplay': {
+                if (!message.guild) return 'Error: Music is only available inside a Discord server.';
+                const queue = getQueue(message.guild.id);
+                if (!queue) {
+                    return 'No music queue active in this server.';
+                }
+                const enabled = Boolean(args.enabled);
+                queue.autoplay = enabled;
+                return `Smart Infinite Autoplay has been turned ${enabled ? 'ON ♾️ (party will never stop!)' : 'OFF ⏹️ (will stop when queue finishes)'}!`;
             }
             default:
                 return `I tried to use a tool but didn't recognize it.`;

@@ -451,6 +451,51 @@ function removeUserFact(userId, keyword) {
     return changes;
 }
 
+function recordUserMusicPlay(userId, track) {
+    if (!userId || !track) return;
+    const profile = getUserProfile(userId);
+    if (!profile.musicTaste) {
+        profile.musicTaste = {
+            artists: {},
+            songs: []
+        };
+    }
+
+    const artist = (track.artist || "").trim();
+    if (artist && artist !== "Unknown") {
+        profile.musicTaste.artists[artist] = (profile.musicTaste.artists[artist] || 0) + 1;
+    }
+
+    if (track.title) {
+        profile.musicTaste.songs.unshift({
+            title: track.title,
+            artist: track.artist || "",
+            timestamp: Date.now()
+        });
+        if (profile.musicTaste.songs.length > 25) {
+            profile.musicTaste.songs.pop();
+        }
+    }
+
+    profile.updatedAt = Date.now();
+    scheduleSave();
+}
+
+function getUserMusicTaste(userId) {
+    const profile = getUserProfile(userId);
+    if (!profile.musicTaste) {
+        return { topArtists: [], recentSongs: [] };
+    }
+
+    const topArtists = Object.entries(profile.musicTaste.artists || {})
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(entry => entry[0]);
+
+    const recentSongs = (profile.musicTaste.songs || []).slice(0, 10);
+    return { topArtists, recentSongs };
+}
+
 function getUserConversation(userId, limit = 20) {
     const history = db.user_conversations[userId] || [];
     return history.slice(-limit);
@@ -600,6 +645,7 @@ module.exports = {
     addBrainMemory, deleteBrainMemoryByKeyword, getBrainMemories, getAllRelevantBrainMemories,
     // User Profile & Memory
     getUserProfile, updateUserProfile, addUserFact, removeUserFact, getUserConversation, appendUserConversation, clearUserMemory,
+    recordUserMusicPlay, getUserMusicTaste,
     // UPI
     setUpi, getUpi, deleteUpi, getAllUpi,
     // Task Pings

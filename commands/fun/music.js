@@ -4,6 +4,7 @@
  */
 const { EmbedBuilder } = require("discord.js");
 const { searchTrack, getQueue, createOrGetQueue } = require("../../utils/musicManager");
+const db = require("../../utils/database");
 
 module.exports = {
   name: "music",
@@ -51,6 +52,19 @@ module.exports = {
       name: "nowplaying",
       description: "Show information about the currently playing song.",
       type: 1,
+    },
+    {
+      name: "autoplay",
+      description: "Toggle smart infinite autoplay so playback never stops when queue finishes.",
+      type: 1,
+      options: [
+        {
+          name: "enabled",
+          description: "Enable or disable autoplay (true/false)",
+          type: 5,
+          required: false,
+        },
+      ],
     },
   ],
 
@@ -210,6 +224,12 @@ module.exports = {
         .setColor("#5865F2");
 
       return interaction.reply({ embeds: [embed] });
+    }
+
+    if (sub === "autoplay") {
+      const opt = interaction.options.getBoolean("enabled");
+      queue.autoplay = opt !== null ? opt : !queue.autoplay;
+      return interaction.reply(`♾️ Smart Infinite Autoplay has been turned **${queue.autoplay ? "ON (party will keep going nonstop!)" : "OFF (will stop when queue finishes)"}**!`);
     }
   },
 };

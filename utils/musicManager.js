@@ -22,6 +22,7 @@ const http = require("http");
 const fs = require("fs");
 const { execSync } = require("child_process");
 const { EmbedBuilder } = require("discord.js");
+const db = require("./database");
 
 // Ensure FFmpeg is available on the container even if npm blocked install-scripts
 function ensureFfmpeg() {
@@ -239,6 +240,74 @@ async function getSafeSoundCloudStream(url) {
   throw lastError || new Error("Failed to extract playable audio stream");
 }
 
+const MOOD_VIBE_MAP = {
+  lofi: {
+    name: "Midnight Lo-Fi & Study Beats",
+    emoji: "☕",
+    keywords: ["lofi", "lo-fi", "padhai", "study", "chill beats", "late night", "peaceful lofi", "lofi chill"],
+    seeds: ["Hindi Lo-Fi Beats", "Chill Lo-Fi Bollywood", "Late Night Study Beats", "Prateek Kuhad Chill"]
+  },
+  phonk: {
+    name: "Heavy Gym Phonk & Beast Workout",
+    emoji: "🏋️",
+    keywords: ["gym", "workout", "phonk", "pump", "heavy", "brazilian phonk", "bench press", "kasrat", "exercise"],
+    seeds: ["Brazilian Phonk Gym", "Drift Phonk Workout", "Aggressive Phonk Hits", "Gym Hardstyle Phonk"]
+  },
+  drive: {
+    name: "Late Night Drive & Pure Nostalgia",
+    emoji: "🚗",
+    keywords: ["drive", "car", "late night drive", "raat", "nostalgia", "purane", "classic", "gedi"],
+    seeds: ["Late Night Drive Hindi", "KK Best Nostalgia Hits", "Lucky Ali Roadtrip", "Mohit Chauhan Travel"]
+  },
+  hype: {
+    name: "Gaming Clutch & High Energy Hype",
+    emoji: "🔥",
+    keywords: ["gaming", "valorant", "clutch", "hype", "bgmi", "cod", "energy", "bass", "trap"],
+    seeds: ["Gaming Trap Beats", "Valorant Hype Songs", "High Energy EDM Bass", "Trap Bass Booster"]
+  },
+  punjabi: {
+    name: "Punjabi Swag & Car Drill",
+    emoji: "🚜",
+    keywords: ["punjabi", "swag", "drill", "bhangra", "geet", "shubh", "aujla", "sidhu", "diljit"],
+    seeds: ["Shubh Top Hits", "Karan Aujla Swag", "Diljit Dosanjh Party", "Sidhu Moosewala Classics", "AP Dhillon Hits"]
+  },
+  sad: {
+    name: "Heartbreak & Emotional Dard",
+    emoji: "💔",
+    keywords: ["sad", "dard", "heartbreak", "emotional", "tuta", "cry", "akela", "alone", "miss", "rona"],
+    seeds: ["Arijit Singh Heartbreak", "Atif Aslam Sad Songs", "B Praak Emotional Hits", "Faheem Abdullah Chinar"]
+  },
+  romantic: {
+    name: "Bollywood Romance & Heartfelt Love",
+    emoji: "❤️",
+    keywords: ["romantic", "love", "pyaar", "ishq", "crush", "date", "sweet", "mohabbat"],
+    seeds: ["Arijit Singh Romantic Hits", "Darshan Raval Love Songs", "Bollywood Acoustic Romance", "Kesariya Love"]
+  },
+  party: {
+    name: "Club Banger & Shaadi Dance",
+    emoji: "🎉",
+    keywords: ["party", "dance", "club", "shaadi", "nacho", "dj", "banger", "daru"],
+    seeds: ["Bollywood Club Party Hits", "Badshah Party Banger", "Honey Singh Classics", "Yo Yo Party"]
+  },
+  peaceful: {
+    name: "Peaceful Indie & Sukoon Acoustic",
+    emoji: "🌿",
+    keywords: ["peaceful", "shanti", "relax", "indie", "acoustic", "sukoon", "morning", "calm"],
+    seeds: ["Indian Indie Acoustic", "The Local Train Chill", "Anuv Jain Peaceful", "Coke Studio Pakistan Classics"]
+  }
+};
+
+function resolveMoodVibe(text) {
+  if (!text) return null;
+  const t = text.toLowerCase();
+  for (const [key, vibe] of Object.entries(MOOD_VIBE_MAP)) {
+    if (vibe.keywords.some(k => t.includes(k))) {
+      return { key, ...vibe };
+    }
+  }
+  return null;
+}
+
 class GuildQueue {
   constructor(guildId, voiceChannel, textChannel) {
     this.guildId = guildId;
@@ -255,6 +324,8 @@ class GuildQueue {
     });
     this.connection = null;
     this.idleTimer = null;
+    this.autoplay = true;
+    this.history = [];
 
     this.player.on(AudioPlayerStatus.Idle, () => {
       console.log(`[Music Player ${this.guildId}] Player became Idle, playing next track...`);
@@ -340,6 +411,36 @@ class GuildQueue {
 
   async playNext() {
     if (this.songs.length === 0) {
+      if (this.autoplay && this.history.length > 0) {
+        const lastSong = this.history[0];
+        const seedArtist = lastSong.artist || "Arijit Singh";
+        const seedQuery = `${seedArtist} top hits`;
+        try {
+          const recommendations = await searchMultipleTracks(seedQuery, 6);
+          const historyTitles = new Set(this.history.map(h => (h.title || "").toLowerCase().replace(/[^a-z0-9]/g, "")));
+          const candidates = recommendations.filter(r => !historyTitles.has((r.title || "").toLowerCase().replace(/[^a-z0-9]/g, "")));
+
+          if (candidates.length > 0) {
+            const nextTrack = candidates[0];
+            nextTrack.requestedBy = { id: this.textChannel?.client?.user?.id || "bot", username: "AI Smart Autoplay" };
+            this.songs.push(nextTrack);
+
+            this.textChannel?.send({
+              embeds: [
+                new EmbedBuilder()
+                  .setTitle("♾️ Smart Autoplay Activated")
+                  .setDescription(`Queue ended! Keeping the session alive with **[${nextTrack.title}](${nextTrack.url})**${nextTrack.artist ? ` by *${nextTrack.artist}*` : ""}!\n*Curated based on your session with ${seedArtist}* 🎧🔥`)
+                  .setColor("#9B59B6")
+              ]
+            }).catch(() => {});
+
+            return this.playNext();
+          }
+        } catch (e) {
+          console.warn("[Autoplay Warning]:", e.message);
+        }
+      }
+
       this.isPlaying = false;
       this.currentSong = null;
       this.resetIdleTimer();
@@ -354,6 +455,14 @@ class GuildQueue {
     const song = this.songs.shift();
     this.currentSong = song;
     this.isPlaying = true;
+
+    this.history.unshift(song);
+    if (this.history.length > 25) this.history.pop();
+    if (song.requestedBy?.id) {
+      try {
+        db.recordUserMusicPlay(song.requestedBy.id, song);
+      } catch (e) {}
+    }
 
     try {
       this.connect();
@@ -570,4 +679,6 @@ module.exports = {
   cleanMusicQuery,
   getQueue,
   createOrGetQueue,
+  MOOD_VIBE_MAP,
+  resolveMoodVibe,
 };

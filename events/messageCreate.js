@@ -9,7 +9,7 @@ const { REDDIT_REGEX, LOADING_EMOJI, CHECK_EMOJI } = require("../commands/admin/
 const { aiToolDefinitions, executeTool } = require("../utils/aiTools");
 const { cancelTaskPingTimeout } = require("../utils/timerManager");
 const { taskCompletedEmbed } = require("../utils/embeds");
-const { getQueue, cleanMusicQuery } = require("../utils/musicManager");
+const { getQueue, cleanMusicQuery, resolveMoodVibe } = require("../utils/musicManager");
 
 const URL_REGEX = /https?:\/\/[^\s]+/;
 
@@ -547,6 +547,33 @@ module.exports = async function onMessageCreate(message) {
       }
     }
 
+    // Autoplay toggle intent
+    const autoplayMatch = cleanPrompt.match(/\bautoplay\s*(on|off|chalu|band)?\b/i);
+    if (autoplayMatch) {
+      const q = getQueue(message.guild.id);
+      if (!q) {
+        return message.reply("Arre bhai abhi voice channel mein koi session active nahi hai! Pehle gaana lagao, phir autoplay chalu karenge! 🎧").catch(() => {});
+      }
+      const val = autoplayMatch[1];
+      const enable = val ? /^(on|chalu)$/i.test(val) : !q.autoplay;
+      q.autoplay = enable;
+      return message.reply(`Smart Infinite Autoplay has been turned **${enable ? 'ON ♾️ (Queue khatam hone par bhi vibe chalu rahegi!)' : 'OFF ⏹️ (Aakhri gaane ke baad ruk jayega)'}**!`).catch(() => {});
+    }
+
+    // Personal favorites / surprise me intent
+    const isFavoritesIntent = /\b(mera\s+favorite|mere\s+taste\s+ka|surprise\s+me|apni\s+marzi\s+se|kuch\s+badiya\s+apna|my\s+favorites?)\b/i.test(cleanPrompt);
+    if (isFavoritesIntent) {
+      const toolRes = await executeTool("music_user_favorites", {}, message);
+      return message.reply(toolRes).catch(() => {});
+    }
+
+    // Mood / Scenario Vibe DJ intent
+    const moodMatch = resolveMoodVibe(cleanPrompt);
+    if (moodMatch && /\b(chala|chalao|lagao|baja|bajao|queue|play|sunao)\b/i.test(cleanPrompt)) {
+      const toolRes = await executeTool("music_vibe_dj", { vibe: moodMatch.key, count: 4 }, message);
+      return message.reply(toolRes).catch(() => {});
+    }
+
     const playMatch = cleanPrompt.match(/^(?:play|chalao|bajao|chala\s+de|lagao|laga\s+de|add)\s+(.+)$/i);
     const isGenericAdd = /^(add\s+karo|add\s+it|add\s+song|daalo|queue\s+mein\s+daalo)$/i.test(cleanPrompt);
 
@@ -642,6 +669,9 @@ module.exports = async function onMessageCreate(message) {
     if (userProfile.summary) {
       userProfilePrompt += `\nSummary of Past Conversations:\n${userProfile.summary}`;
     }
+    const userTaste = db.getUserMusicTaste(message.author.id);
+    const userTasteArtists = userTaste.topArtists?.length > 0 ? userTaste.topArtists.join(", ") : "Exploring new music";
+    userProfilePrompt += `\nPersonal Music Taste (Learned Memory): Top Preferred Artists: ${userTasteArtists}`;
     userProfilePrompt += `\n-----------------------------------------------------------`;
 
     // Build tool list (built-in tools + cmd tools)
@@ -793,8 +823,11 @@ Available bot commands (use via cmd_ tools):
 - cmd_roast: Roast a user. Pass args as "<userId>"
 - cmd_flirt: Rizz up or flirt with a user. Pass args as "<userId>"
 MUSIC & VOICE CHAT CONTROLS (DIRECT AI MUSIC CONTROL):
-- You have full direct control over server voice channel music via dedicated tools:
-  • 'music_play': Play ANY song, artist, album, or vibe in the voice channel.
+- You are not just a player, you are the server's AI DJ with full music intelligence:
+  • 'music_vibe_dj': Drop curated tracks based on mood or real-life scenario (e.g. lofi study, gym workout phonk, late night drive, heartbreak/sad, romantic, gaming clutch, punjabi drill). ALWAYS call this when user describes a mood or situation without naming a specific track!
+  • 'music_user_favorites': Plays the user's personal favorites based on their listening history! Use when user says "mera favorite gana chala", "surprise me", or "kuch mere taste ka bajao". (Current User's Top Artists: ${userTasteArtists})
+  • 'music_autoplay': Toggle infinite autoplay so music never abruptly dies when the queue ends.
+  • 'music_play': Play ANY song, artist, album, or vibe in the voice channel (supports count 1-10 for multiple tracks).
     - If user asks for songs by an artist (e.g. "add only songs by arjeet singh in queue add 5" or "5 gaane Arijit Singh ke lagao"):
       * Set query to the CLEAN artist name (e.g. "Arijit Singh") — DO NOT include filler words like "only songs by" or "in queue add 5"!
       * Set count to the requested number (e.g. count: 5).
