@@ -1,5 +1,6 @@
 const { EmbedBuilder, AttachmentBuilder, PermissionFlagsBits } = require('discord.js');
 const db = require('./database');
+const { searchTrack, getQueue, createOrGetQueue } = require('./musicManager');
 
 const aiToolDefinitions = [
     // Moderation & Interaction
@@ -837,6 +838,69 @@ const aiToolDefinitions = [
         function: {
             name: 'list_guild_emojis',
             description: 'Lists all custom guild emojis available in the server, showing name and format so you can use them in your replies.',
+            parameters: { type: 'object', properties: {} }
+        }
+    },
+    // Music & Voice Controls
+    {
+        type: 'function',
+        function: {
+            name: 'music_play',
+            description: 'Plays a song or queues it in the voice channel. Can search by song title, artist, or music query (e.g. "Charlie Puth We Don\'t Talk Anymore", "Arijit Singh Kesariya", "Despacito").',
+            parameters: {
+                type: 'object',
+                properties: {
+                    query: { type: 'string', description: 'The song name, artist, or music search query' }
+                },
+                required: ['query']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'music_now_playing',
+            description: 'Gets live info about the song currently playing in the voice channel (title, artist, duration, voice channel, requested by).',
+            parameters: { type: 'object', properties: {} }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'music_pause',
+            description: 'Pauses the currently playing song in the voice channel.',
+            parameters: { type: 'object', properties: {} }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'music_resume',
+            description: 'Resumes playback of the paused music in the voice channel.',
+            parameters: { type: 'object', properties: {} }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'music_skip',
+            description: 'Skips the currently playing song and advances to the next track in the queue.',
+            parameters: { type: 'object', properties: {} }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'music_stop',
+            description: 'Stops music playback, clears the queue, and leaves the voice channel.',
+            parameters: { type: 'object', properties: {} }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'music_queue',
+            description: 'Lists all upcoming tracks currently in the server\'s music queue.',
             parameters: { type: 'object', properties: {} }
         }
     }
@@ -1701,6 +1765,125 @@ async function executeTool(tName, args, message) {
                 const emojis = message.guild.emojis.cache.map(e => `${e.name}: <${e.animated ? 'a' : ''}:${e.name}:${e.id}>`);
                 if (emojis.length === 0) return `This server has no custom emojis.`;
                 return `Here are the custom emojis available in this server:\n` + emojis.slice(0, 50).join('\n') + (emojis.length > 50 ? `\n*(and ${emojis.length - 50} more...)*` : '');
+            }
+            // ---- MUSIC TOOLS ----
+            case 'music_play': {
+                if (!message.guild) return 'Error: Music can only be played inside a Discord server.';
+                const query = args.query;
+                if (!query) return 'Please specify a song title or artist to play.';
+
+                let targetVoiceChannel = message.member?.voice?.channel;
+                const existingQueue = getQueue(message.guild.id);
+
+                if (!targetVoiceChannel && existingQueue?.voiceChannel) {
+                    targetVoiceChannel = existingQueue.voiceChannel;
+                }
+
+                if (!targetVoiceChannel) {
+                    return 'User is not in any voice channel. Tell them: "Arre bhai pehle kisi voice channel mein aao tabhi toh gaana baja paunga! 🎧 Join a voice channel first!"';
+                }
+
+                const permissions = targetVoiceChannel.permissionsFor(message.client.user);
+                if (permissions && (!permissions.has(PermissionFlagsBits.Connect) || !permissions.has(PermissionFlagsBits.Speak))) {
+                    return `Error: I don't have permissions to connect or speak in #${targetVoiceChannel.name}. Please grant Connect and Speak permissions.`;
+                }
+
+                const track = await searchTrack(query);
+                if (!track) {
+                    return `Could not find any song matching "${query}". Try another title or artist!`;
+                }
+
+                track.requestedBy = message.author;
+                const queue = createOrGetQueue(message.guild.id, targetVoiceChannel, message.channel);
+
+                if (queue.isPlaying) {
+                    queue.songs.push(track);
+                    const embed = new EmbedBuilder()
+                        .setTitle("📋 Added to Queue")
+                        .setDescription(`**[${track.title}](${track.url})**${track.artist ? `\n*${track.artist}*` : ""}`)
+                        .addFields(
+                            { name: "⏱️ Duration", value: track.duration || "Unknown", inline: true },
+                            { name: "🔢 Position", value: `#${queue.songs.length}`, inline: true },
+                            { name: "👤 Added By", value: `<@${message.author.id}>`, inline: true }
+                        )
+                        .setThumbnail(track.thumbnail || null)
+                        .setColor("#00FF88");
+                    message.channel.send({ embeds: [embed] }).catch(() => {});
+                    return `Added "${track.title}"${track.artist ? ` by ${track.artist}` : ""} to the queue at position #${queue.songs.length}!`;
+                } else {
+                    queue.songs.push(track);
+                    await queue.playNext();
+                    return `Now playing "${track.title}"${track.artist ? ` by ${track.artist}` : ""} in voice channel #${targetVoiceChannel.name}! 🔥`;
+                }
+            }
+            case 'music_now_playing': {
+                if (!message.guild) return 'Error: Music is only available inside a Discord server.';
+                const queue = getQueue(message.guild.id);
+                if (!queue || (!queue.currentSong && !queue.isPlaying)) {
+                    return 'No music is currently playing in this server. Voice queue is empty.';
+                }
+                const s = queue.currentSong;
+                const isPaused = queue.player.state.status === 'paused';
+                return `Currently ${isPaused ? 'paused' : 'playing'}: "${s?.title || 'Unknown'}"${s?.artist ? ` by ${s.artist}` : ''} (Duration: ${s?.duration || 'Unknown'}) in #${queue.voiceChannel?.name || 'voice'}. Requested by @${s?.requestedBy?.username || 'user'}.`;
+            }
+            case 'music_pause': {
+                if (!message.guild) return 'Error: Music is only available inside a Discord server.';
+                const queue = getQueue(message.guild.id);
+                if (!queue || (!queue.currentSong && !queue.isPlaying)) {
+                    return 'No music is currently playing in this server to pause.';
+                }
+                if (queue.player.state.status === 'paused') {
+                    return 'The music is already paused!';
+                }
+                queue.player.pause();
+                return `Paused playback for "${queue.currentSong?.title || 'current song'}".`;
+            }
+            case 'music_resume': {
+                if (!message.guild) return 'Error: Music is only available inside a Discord server.';
+                const queue = getQueue(message.guild.id);
+                if (!queue || (!queue.currentSong && !queue.isPlaying)) {
+                    return 'No paused music found to resume.';
+                }
+                if (queue.player.state.status !== 'paused') {
+                    return 'Music is already playing, not paused.';
+                }
+                queue.player.unpause();
+                return `Resumed playback for "${queue.currentSong?.title || 'current song'}".`;
+            }
+            case 'music_skip': {
+                if (!message.guild) return 'Error: Music is only available inside a Discord server.';
+                const queue = getQueue(message.guild.id);
+                if (!queue || (!queue.currentSong && !queue.isPlaying)) {
+                    return 'No song is currently playing to skip.';
+                }
+                const skippedTitle = queue.currentSong?.title || 'current song';
+                queue.player.stop();
+                return `Skipped "${skippedTitle}". Playing next track in queue.`;
+            }
+            case 'music_stop': {
+                if (!message.guild) return 'Error: Music is only available inside a Discord server.';
+                const queue = getQueue(message.guild.id);
+                if (!queue || (!queue.currentSong && !queue.isPlaying)) {
+                    return 'No active music playback to stop.';
+                }
+                queue.destroy();
+                return 'Stopped music, cleared the queue, and disconnected from the voice channel.';
+            }
+            case 'music_queue': {
+                if (!message.guild) return 'Error: Music is only available inside a Discord server.';
+                const queue = getQueue(message.guild.id);
+                if (!queue || (!queue.currentSong && queue.songs.length === 0)) {
+                    return 'The music queue is currently empty.';
+                }
+                const current = queue.currentSong;
+                const upcoming = queue.songs;
+                let text = `Current: "${current?.title || 'None'}"${current?.artist ? ` by ${current.artist}` : ''} (${current?.duration || '?'})\n`;
+                if (upcoming.length === 0) {
+                    text += 'No upcoming songs in queue.';
+                } else {
+                    text += `Upcoming (${upcoming.length}):\n` + upcoming.slice(0, 5).map((t, i) => `${i + 1}. "${t.title}" (${t.duration || '?'})`).join('\n');
+                }
+                return text;
             }
             default:
                 return `I tried to use a tool but didn't recognize it.`;

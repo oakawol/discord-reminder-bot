@@ -9,6 +9,7 @@ const { REDDIT_REGEX, LOADING_EMOJI, CHECK_EMOJI } = require("../commands/admin/
 const { aiToolDefinitions, executeTool } = require("../utils/aiTools");
 const { cancelTaskPingTimeout } = require("../utils/timerManager");
 const { taskCompletedEmbed } = require("../utils/embeds");
+const { getQueue } = require("../utils/musicManager");
 
 const URL_REGEX = /https?:\/\/[^\s]+/;
 
@@ -571,7 +572,7 @@ module.exports = async function onMessageCreate(message) {
     // Explicitly add command tools so Groq and Gemini tool validation passes
     const cmdTools = [
       "add_money", "remove_money", "balance", "history", "imagine", "remind",
-      "taskping", "text", "verify", "memory", "cd", "remove_cd", "roast", "flirt", "music"
+      "taskping", "text", "verify", "memory", "cd", "remove_cd", "roast", "flirt"
     ];
     for (const cmdName of cmdTools) {
       dynamicTools.push({
@@ -613,6 +614,30 @@ module.exports = async function onMessageCreate(message) {
       )
     );
 
+    let musicContextPrompt = "";
+    if (message.guild) {
+      const q = getQueue(message.guild.id);
+      if (q && (q.currentSong || q.isPlaying)) {
+        const s = q.currentSong;
+        const isPaused = q.player?.state?.status === "paused";
+        const upcomingCount = q.songs.length;
+        const nextList = upcomingCount > 0
+          ? q.songs.slice(0, 3).map((t, idx) => `${idx + 1}. "${t.title}"`).join(", ")
+          : "None";
+        musicContextPrompt = `\n\nCURRENT MUSIC STATUS IN THIS DISCORD SERVER:
+- Status: Music is actively ${isPaused ? "PAUSED" : "PLAYING"} in voice channel #${q.voiceChannel?.name || "voice"} (<#${q.voiceChannel?.id}>)
+- Currently Playing Track: "${s?.title || "Unknown"}"${s?.artist ? ` by ${s.artist}` : ""}
+- Track Duration: ${s?.duration || "Unknown"}
+- Requested by: @${s?.requestedBy?.username || "Someone"}
+- Upcoming in queue (${upcomingCount}): ${nextList}
+- CRITICAL: When the user asks "kaunsa gana play kar rahe ho", "what song is playing", "abhi kya baj raha hai", or about music, you ALREADY know this exact track! Tell them right away in natural, enthusiastic Hinglish!`;
+      } else {
+        musicContextPrompt = `\n\nCURRENT MUSIC STATUS IN THIS DISCORD SERVER:
+- Status: No music is currently playing in any voice channel.
+- If the user asks what song is playing, let them know honestly in casual Hinglish that abhi koi gana nahi chal raha, and tell them to name a song and you'll play it right away!`;
+      }
+    }
+
     for (const { provider, model, supportsTools } of availableModels) {
       const { url: apiUrl, key: apiKey } = getProviderConfig(provider);
       try {
@@ -628,6 +653,7 @@ CURRENT REAL-TIME CLOCK (MANDATORY & ACCURATE - IST TIMEZONE):
 CRITICAL DATE RULE:
 - When the user asks "what day is today", "date", "aaj kya din hai", "aaj konsa din hai", "aaj ki date kya hai", or asks for the current year/time, ALWAYS answer with this exact real-time live clock: "${indianDay}, ${indianDate}"!
 - NEVER guess, hallucinate, or say 2023, 2024, or 2025!
+${musicContextPrompt}
 
 AUDIENCE & COMMUNITY:
 - You are chilling in an Indian Discord server talking to Indian members.
@@ -688,7 +714,16 @@ Available bot commands (use via cmd_ tools):
 - cmd_remind: Schedule a reminder. Pass args as "<duration> <note>" (e.g. "10m check oven")
 - cmd_roast: Roast a user. Pass args as "<userId>"
 - cmd_flirt: Rizz up or flirt with a user. Pass args as "<userId>"
-- cmd_music: Play or manage voice channel music. Pass args as "play <song title>" or "skip" or "pause" or "stop"
+MUSIC & VOICE CHAT CONTROLS (DIRECT AI MUSIC CONTROL):
+- You have full direct control over server voice channel music via dedicated tools:
+  • 'music_play': Play ANY song, artist, album, or vibe in the voice channel (e.g. query: "We Don't Talk Anymore", "Kesariya", "Arijit Singh", "Despacito"). If the user says "gana chala de", "play <song>", "koi gana lagao", "koi badhiya sad song chala", ALWAYS call 'music_play'!
+  • 'music_now_playing': Get live details about the song currently playing.
+  • 'music_pause': Pause current song.
+  • 'music_resume': Resume paused song.
+  • 'music_skip': Skip to next track in queue.
+  • 'music_stop': Stop playback, clear queue, and leave voice channel.
+  • 'music_queue': Show list of upcoming songs in queue.
+- If the user asks "kaunsa gana play kar rahe ho", "what song is playing", look at CURRENT MUSIC STATUS above or call 'music_now_playing' and tell them the exact track and channel in enthusiastic Hinglish!
 
 User messages are prefixed with their username (e.g. Username: message) so you know who is talking.
 Always extract the user's Discord ID from mentions like <@123456789> and include it in args.
