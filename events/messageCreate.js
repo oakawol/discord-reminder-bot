@@ -168,6 +168,12 @@ function isCurrentEventOrMovieQuery(text) {
   return false;
 }
 
+function isMusicQuery(text) {
+  if (!text) return false;
+  const t = text.toLowerCase();
+  return /\b(play|gaana|gana|geet|music|song|songs|track|tracks|bajao|baja\s+de|bajana|chalao|chala\s+de|chalu\s+kar|lagao|laga\s+de|sunao|suna\s+de|add\s+karo|add\s+this|queue|skip|pause|resume|vibe)\b/i.test(t);
+}
+
 // Provider configurations and dynamic failover model hierarchy
 function getAiModelList(isComplex = false) {
   if (isComplex) {
@@ -540,6 +546,20 @@ module.exports = async function onMessageCreate(message) {
         return message.reply(`Abhi voice channel **#${q.voiceChannel?.name || "voice"}** mein ${isPaused ? "PAUSED" : "PLAYING"}: **${s?.title || "Unknown"}**${s?.artist ? ` by ${s.artist}` : ""} (${s?.duration || "?"})! 🎶🔥`).catch(() => {});
       }
     }
+
+    const playMatch = cleanPrompt.match(/^(?:play|chalao|bajao|chala\s+de|lagao|laga\s+de|add)\s+(.+)$/i);
+    const isGenericAdd = /^(add\s+karo|add\s+it|add\s+song|daalo|queue\s+mein\s+daalo)$/i.test(cleanPrompt);
+
+    if (playMatch || isGenericAdd) {
+      let songQuery = playMatch ? playMatch[1].trim() : "";
+      if (isGenericAdd || !songQuery) {
+        songQuery = "good vibes";
+      }
+      songQuery = songQuery.replace(/^(something\s+(random\s+)?|random\s+)/i, "").trim() || "good vibes";
+
+      const toolRes = await executeTool("music_play", { query: songQuery, playNow: false }, message);
+      return message.reply(toolRes).catch(() => {});
+    }
   }
 
   // Fetch conversation history for context (up to 20 messages for rich dialogue awareness)
@@ -779,6 +799,10 @@ MUSIC & VOICE CHAT CONTROLS (DIRECT AI MUSIC CONTROL):
   • 'music_stop': Stop playback, clear queue, and leave voice channel.
   • 'music_queue': Show list of upcoming songs in queue.
 - If the user asks "kaunsa gana play kar rahe ho", "what song is playing", look at CURRENT MUSIC STATUS above or call 'music_now_playing' and tell them the exact track and channel in enthusiastic Hinglish!
+CRITICAL RULE (NEVER HALLUCINATE MUSIC PLAYBACK IN TEXT):
+- NEVER pretend to add or play a song in plain text!
+- NEVER say "queue mein daal raha hu", "line mein laga diya", "playing now", or "maine add kar diya" unless you ACTUALLY call 'music_play' tool!
+- If the user asks for music or vibes (e.g. "play something", "add karo", "chalao", "koi gana bajao"), YOU MUST CALL 'music_play' TOOL! Do NOT just reply with text saying you did it!
 
 User messages are prefixed with their username (e.g. Username: message) so you know who is talking.
 Always extract the user's Discord ID from mentions like <@123456789> and include it in args.
@@ -797,7 +821,7 @@ Do not include any <think> reasoning tags or internal system thoughts in your ou
         // Only pass tools to models that support them
         if (supportsTools) {
           requestBody.tools = dynamicTools;
-          if (isCurrentEventOrMovieQuery(prompt)) {
+          if (isCurrentEventOrMovieQuery(prompt) || isMusicQuery(prompt)) {
             requestBody.tool_choice = "required";
           } else {
             requestBody.tool_choice = "auto";
