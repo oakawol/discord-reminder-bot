@@ -9,7 +9,7 @@ const { REDDIT_REGEX, LOADING_EMOJI, CHECK_EMOJI } = require("../commands/admin/
 const { aiToolDefinitions, executeTool } = require("../utils/aiTools");
 const { cancelTaskPingTimeout } = require("../utils/timerManager");
 const { taskCompletedEmbed } = require("../utils/embeds");
-const { getQueue } = require("../utils/musicManager");
+const { getQueue, cleanMusicQuery } = require("../utils/musicManager");
 
 const URL_REGEX = /https?:\/\/[^\s]+/;
 
@@ -551,13 +551,18 @@ module.exports = async function onMessageCreate(message) {
     const isGenericAdd = /^(add\s+karo|add\s+it|add\s+song|daalo|queue\s+mein\s+daalo)$/i.test(cleanPrompt);
 
     if (playMatch || isGenericAdd) {
-      let songQuery = playMatch ? playMatch[1].trim() : "";
+      let rawQuery = playMatch ? playMatch[1].trim() : "";
+      // Extract count if user requested multiple songs (e.g. "add 5", "5 songs", "add only songs by arjeet singh in queue add 5")
+      const countMatch = cleanPrompt.match(/\b(?:add|play)?\s*(\d+)\s*(?:songs?|gane|tracks?)?\b/i) || cleanPrompt.match(/\b(?:add|play)\s+(\d+)\b/i);
+      const count = countMatch ? Math.min(Math.max(parseInt(countMatch[1]) || 1, 1), 10) : 1;
+
+      let songQuery = cleanMusicQuery(rawQuery);
       if (isGenericAdd || !songQuery) {
         songQuery = "good vibes";
       }
       songQuery = songQuery.replace(/^(something\s+(random\s+)?|random\s+)/i, "").trim() || "good vibes";
 
-      const toolRes = await executeTool("music_play", { query: songQuery, playNow: false }, message);
+      const toolRes = await executeTool("music_play", { query: songQuery, count, playNow: false }, message);
       return message.reply(toolRes).catch(() => {});
     }
   }
@@ -789,8 +794,11 @@ Available bot commands (use via cmd_ tools):
 - cmd_flirt: Rizz up or flirt with a user. Pass args as "<userId>"
 MUSIC & VOICE CHAT CONTROLS (DIRECT AI MUSIC CONTROL):
 - You have full direct control over server voice channel music via dedicated tools:
-  • 'music_play': Play ANY song, artist, album, or vibe in the voice channel (e.g. query: "We Don't Talk Anymore", "Kesariya", "Arijit Singh", "Despacito").
-    - CRITICAL RULE: If the user says "ye bajao ab", "play this now", "purana wala skip kardo ye bajao", "skip karke ye chalao", or wants to skip the current track to play this song right away, ALWAYS set playNow: true!
+  • 'music_play': Play ANY song, artist, album, or vibe in the voice channel.
+    - If user asks for songs by an artist (e.g. "add only songs by arjeet singh in queue add 5" or "5 gaane Arijit Singh ke lagao"):
+      * Set query to the CLEAN artist name (e.g. "Arijit Singh") — DO NOT include filler words like "only songs by" or "in queue add 5"!
+      * Set count to the requested number (e.g. count: 5).
+    - If the user says "ye bajao ab", "play this now", "purana wala skip kardo ye bajao", "skip karke ye chalao", or wants to skip the current track to play this song right away, ALWAYS set playNow: true!
     - If user asks to queue it, set playNow: false.
   • 'music_skip': Skips the current song in the voice channel and immediately starts playing the next song in the queue. ALWAYS call this when the user says "skip kardo", "purana wala skip kardo", "next gana chala", "skip this", "ye bajao ab"!
   • 'music_now_playing': Get live details about the song currently playing.

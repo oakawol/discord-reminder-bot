@@ -1,6 +1,6 @@
 const { EmbedBuilder, AttachmentBuilder, PermissionFlagsBits } = require('discord.js');
 const db = require('./database');
-const { searchTrack, getQueue, createOrGetQueue } = require('./musicManager');
+const { searchTrack, searchMultipleTracks, getQueue, createOrGetQueue } = require('./musicManager');
 
 const aiToolDefinitions = [
     // Moderation & Interaction
@@ -846,11 +846,12 @@ const aiToolDefinitions = [
         type: 'function',
         function: {
             name: 'music_play',
-            description: 'Plays a song in the voice channel. Can search by song title, artist, or music query. Set playNow to true if user wants to play it immediately / right now, or wants to skip the current playing song to play this one right away.',
+            description: 'Plays one or more songs or adds them to the queue in the voice channel. Can search by song title, artist, or vibe (e.g. "Arijit Singh", "Kesariya", "Charlie Puth"). Use count to queue multiple songs (e.g. 5). Set playNow to true if user wants to play immediately and skip current track.',
             parameters: {
                 type: 'object',
                 properties: {
-                    query: { type: 'string', description: 'The song name, artist, or music search query' },
+                    query: { type: 'string', description: 'The clean song title or artist name (e.g. "Arijit Singh", "Kesariya" - do NOT include filler like "only songs by" or "add 5")' },
+                    count: { type: 'integer', description: 'Number of songs to add (default: 1, max: 10). Use when user asks for multiple songs (e.g. "add 5 songs by Arijit Singh").' },
                     playNow: { type: 'boolean', description: 'Set to true if user wants to play this song NOW / immediately, or wants to skip the current song to hear this one right now.' }
                 },
                 required: ['query']
@@ -1772,6 +1773,7 @@ async function executeTool(tName, args, message) {
                 if (!message.guild) return 'Error: Music can only be played inside a Discord server.';
                 const rawQuery = (args.query || '').trim();
                 const playNow = Boolean(args.playNow);
+                const count = Math.min(Math.max(parseInt(args.count) || 1, 1), 10);
 
                 let targetVoiceChannel = message.member?.voice?.channel;
                 const existingQueue = getQueue(message.guild.id);
@@ -1802,12 +1804,35 @@ async function executeTool(tName, args, message) {
                     return `Error: I don't have permissions to connect or speak in #${targetVoiceChannel.name}. Please grant Connect and Speak permissions.`;
                 }
 
-                const track = await searchTrack(query);
-                if (!track) {
-                    return `Could not find any song matching "${query}". Try another title or artist!`;
+                const tracks = await searchMultipleTracks(query, count);
+                if (!tracks || tracks.length === 0) {
+                    return `Could not find any songs matching "${query}". Try another title or artist!`;
                 }
 
-                track.requestedBy = message.author;
+                for (const t of tracks) {
+                    t.requestedBy = message.author;
+                }
+
+                if (tracks.length > 1) {
+                    const addedCount = tracks.length;
+                    if (!queue.isPlaying) {
+                        const firstTrack = tracks.shift();
+                        queue.songs.push(firstTrack);
+                        for (const t of tracks) queue.songs.push(t);
+                        await queue.playNext();
+                    } else {
+                        for (const t of tracks) queue.songs.push(t);
+                    }
+
+                    const embed = new EmbedBuilder()
+                        .setTitle(`📋 Added ${addedCount} Songs to Queue`)
+                        .setDescription(`Added tracks for **"${query}"**:\n` + tracks.slice(0, 5).map((t, idx) => `${idx + 1}. **[${t.title}](${t.url})**${t.artist ? ` • *${t.artist}*` : ""}`).join("\n") + (tracks.length > 5 ? `\n*...and ${tracks.length - 5} more tracks.*` : ""))
+                        .setColor("#00FF88");
+                    message.channel.send({ embeds: [embed] }).catch(() => {});
+                    return `Added ${addedCount} songs for "${query}" to the queue! 🎶 (Queue now has ${queue.songs.length} upcoming tracks)`;
+                }
+
+                const track = tracks[0];
 
                 if (queue.isPlaying) {
                     if (playNow) {
@@ -1830,7 +1855,7 @@ async function executeTool(tName, args, message) {
                         .setThumbnail(track.thumbnail || null)
                         .setColor("#00FF88");
                     message.channel.send({ embeds: [embed] }).catch(() => {});
-                    return `Added "${track.title}"${track.artist ? ` by ${track.artist}` : ""} to the queue at position #${queue.songs.length}! (If the user wants to play it immediately right now, tell them you can skip to it with "skip kardo" or "ye abhi bajao")`;
+                    return `Added "${track.title}"${track.artist ? ` by ${track.artist}` : ""} to the queue at position #${queue.songs.length}! 🎶`;
                 } else {
                     queue.songs.push(track);
                     await queue.playNext();

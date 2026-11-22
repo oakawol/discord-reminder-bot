@@ -59,6 +59,16 @@ function decodeHtml(html) {
     .replace(/&gt;/g, ">");
 }
 
+function cleanMusicQuery(raw) {
+  if (!raw) return "";
+  return raw
+    .replace(/\b(?:only\s+)?songs?\s+by\b/gi, "")
+    .replace(/\b(?:in\s+queue|add\s+\d+|\d+\s+songs?|in\s+voice)\b/gi, "")
+    .replace(/^(?:play|add|chalao|bajao|lagao)\s+/i, "")
+    .replace(/["']/g, "")
+    .trim();
+}
+
 function decryptMediaUrl(encrypted) {
   try {
     const key = CryptoJS.enc.Utf8.parse("38346591");
@@ -73,11 +83,75 @@ function decryptMediaUrl(encrypted) {
   }
 }
 
-async function searchJioSaavn(query) {
+async function searchMultipleTracks(query, count = 1) {
+  const clean = cleanMusicQuery(query) || query;
+  const targetCount = Math.min(Math.max(count || 1, 1), 10);
+
   try {
     const url =
       "https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&_marker=0&api_version=4&ctx=web6dot0&q=" +
-      encodeURIComponent(query) +
+      encodeURIComponent(clean) +
+      `&n=${Math.max(targetCount * 3, 15)}&p=1`;
+    const headers = {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      Referer: "https://www.jiosaavn.com/",
+    };
+    const res = await fetch(url, { headers });
+    if (res.ok) {
+      const json = await res.json();
+      const results = json.results || [];
+      const tracks = [];
+      const seenTitles = new Set();
+
+      for (const song of results) {
+        if (tracks.length >= targetCount) break;
+        const enc = song.more_info?.encrypted_media_url;
+        if (!enc) continue;
+        const rawUrl = decryptMediaUrl(enc);
+        if (!rawUrl) continue;
+
+        const title = decodeHtml(song.title);
+        const norm = title.toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (seenTitles.has(norm)) continue;
+        seenTitles.add(norm);
+
+        const streamUrl = rawUrl.replace("_96.", "_160.").replace("_320.", "_160.");
+        const durationSec = parseInt(song.more_info?.duration || 0);
+        const mins = Math.floor(durationSec / 60);
+        const secs = String(durationSec % 60).padStart(2, "0");
+        const thumb = (song.image || "").replace("150x150", "500x500");
+        const artist = decodeHtml(
+          song.more_info?.artistMap?.primary_artists?.[0]?.name || song.subtitle || ""
+        );
+
+        tracks.push({
+          title: title,
+          artist: artist,
+          url: song.perma_url || streamUrl,
+          streamUrl: streamUrl,
+          duration: `${mins}:${secs}`,
+          thumbnail: thumb || null,
+          source: "jiosaavn",
+        });
+      }
+
+      if (tracks.length > 0) return tracks;
+    }
+  } catch (err) {
+    console.warn("[searchMultipleTracks Warning]:", err.message);
+  }
+
+  const single = await searchTrack(clean);
+  return single ? [single] : [];
+}
+
+async function searchJioSaavn(query) {
+  try {
+    const clean = cleanMusicQuery(query) || query;
+    const url =
+      "https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&_marker=0&api_version=4&ctx=web6dot0&q=" +
+      encodeURIComponent(clean) +
       "&n=8&p=1";
     const headers = {
       "User-Agent":
@@ -387,7 +461,8 @@ class GuildQueue {
   }
 }
 
-async function searchTrack(query) {
+async function searchTrack(rawQuery) {
+  const query = cleanMusicQuery(rawQuery) || rawQuery;
   // 1. Direct SoundCloud URL
   if (query.includes("soundcloud.com")) {
     await ensureSoundCloud();
@@ -491,6 +566,8 @@ function createOrGetQueue(guildId, voiceChannel, textChannel) {
 
 module.exports = {
   searchTrack,
+  searchMultipleTracks,
+  cleanMusicQuery,
   getQueue,
   createOrGetQueue,
 };
