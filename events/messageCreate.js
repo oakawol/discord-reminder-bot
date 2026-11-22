@@ -152,6 +152,21 @@ function isComplexQuery(text) {
   return false;
 }
 
+function isCurrentEventOrMovieQuery(text) {
+  if (!text) return false;
+  const t = text.toLowerCase();
+  // Movies & cinema releases
+  if (/\b(movie|movies|film|films|cinema|theatre|theater|blockbuster|box\s*office|release|aayi\s+hai|aaya\s+hai|nayi\s+aayi|naya\s+aaya|ott|netflix|prime)\b/i.test(t) &&
+      /\b(kaunsi|konsi|latest|naya|nayi|new|aaj|recent|current|kya\s+dekhu|bata|trend|hit)\b/i.test(t)) {
+    return true;
+  }
+  // News & current events
+  if (/\b(news|khabar|samachar|headlines|update|breaking|cricket|score|ipl|match|election|aaj\s+kya\s+hua)\b/i.test(t)) {
+    return true;
+  }
+  return false;
+}
+
 // Provider configurations and dynamic failover model hierarchy
 function getAiModelList(isComplex = false) {
   if (isComplex) {
@@ -165,7 +180,7 @@ function getAiModelList(isComplex = false) {
       { provider: "gemini",       model: "gemini-2.5-flash",                 supportsTools: true },
       // High-Speed: Groq
       { provider: "groq",         model: "openai/gpt-oss-120b",              supportsTools: true },
-      { provider: "groq",         model: "qwen/qwen3.6-27b",                 supportsTools: true },
+      { provider: "groq",         model: "qwen/qwen3.8-27b",                 supportsTools: true },
       // Fallbacks
       { provider: "openrouter",   model: "google/gemini-2.5-flash",          supportsTools: true },
       { provider: "pollinations", model: "openai-fast",                      supportsTools: true },
@@ -180,8 +195,8 @@ function getAiModelList(isComplex = false) {
     { provider: "gemini",       model: "gemini-2.0-flash",                 supportsTools: true },
     { provider: "gemini",       model: "gemini-2.5-pro",                   supportsTools: true },
     // High-Speed: Groq
-    { provider: "groq",         model: "qwen/qwen3.6-27b",                 supportsTools: true },
     { provider: "groq",         model: "openai/gpt-oss-120b",              supportsTools: true },
+    { provider: "groq",         model: "qwen/qwen3.8-27b",                 supportsTools: true },
     { provider: "groq",         model: "openai/gpt-oss-20b",               supportsTools: true },
     // Fallbacks
     { provider: "openrouter",   model: "google/gemini-2.5-flash",          supportsTools: true },
@@ -444,6 +459,32 @@ module.exports = async function onMessageCreate(message) {
   const userProfile = db.getUserProfile(message.author.id);
   const userConversationHistory = db.getUserConversation(message.author.id, 20);
 
+  // Direct fast-path for live date, day, or time questions (100% accurate, 0ms latency, zero hallucination)
+  const cleanPrompt = prompt.toLowerCase().replace(/[?!.,]/g, "").trim();
+  const isDateQuery = /^(what\s+date\s+is\s+today|what\s+is\s+today\s*'?s\s+date|what\s+is\s+the\s+date|today\s*'?s\s+date|today\s+date|what\s+date|date|aaj\s+kya\s+date\s+hai|aaj\s+konsi\s+date\s+hai|aaj\s+kaunsi\s+date\s+hai|aaj\s+ki\s+date|aaj\s+ki\s+taarikh|aaj\s+kya\s+taarikh\s+hai|taarikh|tarikh)$/i.test(cleanPrompt) ||
+    /^(bhai\s+)?(aaj\s+(ki\s+)?date|what\s+is\s+(today'?s\s+)?date)(\s+bata(\s+na)?)?$/i.test(cleanPrompt);
+
+  const isDayQuery = /^(what\s+day\s+is\s+today|what\s+day\s+is\s+it|what\s+is\s+today|today\s+day|day|aaj\s+kya\s+din\s+hai|aaj\s+konsa\s+din\s+hai|aaj\s+kaunsa\s+din\s+hai|din)$/i.test(cleanPrompt);
+
+  const isTimeQuery = /^(what\s+time\s+is\s+it|what\s+is\s+the\s+time|current\s+time|time|kya\s+time\s+ho\s+raha\s+hai|time\s+kya\s+hai|kitne\s+baje\s+hai|samay)$/i.test(cleanPrompt);
+
+  if (isDateQuery || isDayQuery || isTimeQuery) {
+    const friendName = userProfile.preferredName ? `${userProfile.preferredName} bhai` : "bhai";
+    let quickReply = "";
+    if (isDateQuery) {
+      quickReply = `Arre ${friendName}, aaj **${indianDay}** hai, date **${indianDate}**! 📅🔥 Calendar ekdum sort hai yaar, tension mat le! 😎`;
+    } else if (isDayQuery) {
+      quickReply = `Aaj **${indianDay}** hai ${friendName}! 🚀 Sahi scene hai na? Mast chill maar! 🔥`;
+    } else {
+      quickReply = `Abhi Indian Standard Time ho raha hai **${indianTime} IST** ⏰ Mast chill maar ya kaam nipta le ${friendName}! 🤝`;
+    }
+
+    db.appendUserConversation(message.author.id, "user", `${message.author.username}: ${prompt}`);
+    db.appendUserConversation(message.author.id, "assistant", quickReply);
+
+    return message.reply(quickReply).catch(() => {});
+  }
+
   // Fetch conversation history for context (up to 20 messages for rich dialogue awareness)
   let conversationHistory = [];
   try {
@@ -479,6 +520,16 @@ module.exports = async function onMessageCreate(message) {
       content: turn.content,
     }));
   }
+
+  // Scrub any prior hallucinated dates (e.g. 2024-05-24 or February 2025) so they don't pollute LLM context
+  activeHistory = activeHistory.filter(msg => {
+    if (msg.role === "assistant") {
+      if (/\b(?:2024-05-24|25\s+February\s+2025|February\s+2025|2024|2023)\b/i.test(msg.content) && /\b(?:date|today|aaj|clock)\b/i.test(msg.content)) {
+        return false;
+      }
+    }
+    return true;
+  });
 
   try {
     await message.channel.sendTyping();
@@ -649,7 +700,11 @@ Do not include any <think> reasoning tags or internal system thoughts in your ou
         // Only pass tools to models that support them
         if (supportsTools) {
           requestBody.tools = dynamicTools;
-          requestBody.tool_choice = "auto";
+          if (isCurrentEventOrMovieQuery(prompt)) {
+            requestBody.tool_choice = "required";
+          } else {
+            requestBody.tool_choice = "auto";
+          }
         }
 
         const headers = {
@@ -698,6 +753,7 @@ Do not include any <think> reasoning tags or internal system thoughts in your ou
           messages.push(responseMessage);
 
           let executedSilently = false;
+          const executedToolOutputs = [];
 
           for (const toolCall of responseMessage.tool_calls) {
             let argsObj;
@@ -856,6 +912,7 @@ Do not include any <think> reasoning tags or internal system thoughts in your ou
               toolResult = await executeTool(tName, argsObj, message);
             }
 
+            executedToolOutputs.push(`[Tool: ${tName}]\n${toolResult}`);
             messages.push({
               role: "tool",
               tool_call_id: toolCall.id,
@@ -870,60 +927,81 @@ Do not include any <think> reasoning tags or internal system thoughts in your ou
             ? "COMMAND_EXECUTED_SILENTLY"
             : null;
 
-          // Compact messages payload for 2nd API call to consume minimal tokens (<500 tokens)
-          const secondMessagesPayload = [
-            { role: "system", content: "You are Oakawol Bot, a chill Indian Discord buddy. Summarize the tool output in natural, friendly Hinglish with expressive emojis (🔥, 💀, 😂, 🤝, 💯). CRITICAL: DO NOT use dashes (-) or robotic bullet point lists! Talk like a real friend on Discord." },
-            { role: "user", content: prompt },
-            { role: "assistant", content: `Tool Output: ${secondReply || "Action completed successfully."}` }
-          ];
-
-          // Attempt second API call to get final text response after tool execution with failover
-          for (const retryModel of availableModels) {
-            const { url: rUrl, key: rKey } = getProviderConfig(retryModel.provider);
-            try {
-              const rHeaders = {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${rKey}`,
-              };
-              if (retryModel.provider === "openrouter") {
-                rHeaders["HTTP-Referer"] = "https://github.com/toodos/discord-reminder-bot";
-                rHeaders["X-Title"] = "Oakawol Bot";
+          if (!executedSilently) {
+            const toolResultsCombined = executedToolOutputs.join("\n\n");
+            const secondMessagesPayload = [
+              {
+                role: "system",
+                content: `You are Oakawol Bot — a super chill, witty Indian Discord homie and server buddy.
+CURRENT REAL-TIME CLOCK: ${indianDay}, ${indianDate} (${indianTime} IST).
+AUDIENCE: Indian Discord server members.
+LANGUAGE & TONE: Conversational, friendly HINGLISH with expressive emojis (🔥, 💀, 😂, 😎, 🤝, 💯).
+FORMATTING RULES:
+- DO NOT use dashes (-) for bullet points or lists!
+- DO NOT use asterisk lists (* item 1 * item 2).
+- DO NOT use robotic markdown headers (###) or AI disclaimers like "As an AI" or "Here is what you asked for:".
+- Talk like a real, lively Indian friend casually texting in Discord.`
+              },
+              { role: "user", content: prompt },
+              {
+                role: "user",
+                content: `Here are the latest real-time results from the server/tools:\n${toolResultsCombined.slice(0, 3000)}\n\nNow give a witty, natural reply to ${message.author.username} in friendly Hinglish based on these results. Sound like a real homie chatting on Discord. Do not mention searching or tools.`
               }
+            ];
 
-              const secondResponse = await fetch(rUrl, {
-                method: "POST",
-                headers: rHeaders,
-                body: JSON.stringify({ model: retryModel.model, messages: secondMessagesPayload, max_tokens: 1000 }),
-              });
+            // Attempt second API call to get final text response after tool execution with failover
+            for (const retryModel of availableModels) {
+              const { url: rUrl, key: rKey } = getProviderConfig(retryModel.provider);
+              if (!rKey) continue;
+              try {
+                const rHeaders = {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${rKey}`,
+                };
+                if (retryModel.provider === "openrouter") {
+                  rHeaders["HTTP-Referer"] = "https://github.com/toodos/discord-reminder-bot";
+                  rHeaders["X-Title"] = "Oakawol Bot";
+                }
 
-              if (secondResponse.ok) {
-                const secondCompletion = await secondResponse.json();
-                let rawReply = secondCompletion.choices[0]?.message?.content;
-                if (rawReply) {
-                  rawReply = rawReply
-                    .replace(/<think>[\s\S]*?<\/think>/gi, "")
-                    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
-                    .replace(/<reflection>[\s\S]*?<\/reflection>/gi, "")
-                    .replace(/<output>([\s\S]*?)<\/output>/gi, "$1")
-                    .trim();
+                const secondResponse = await fetch(rUrl, {
+                  method: "POST",
+                  headers: rHeaders,
+                  body: JSON.stringify({
+                    model: retryModel.model,
+                    messages: secondMessagesPayload,
+                    max_tokens: 1000
+                  }),
+                });
+
+                if (secondResponse.ok) {
+                  const secondCompletion = await secondResponse.json();
+                  let rawReply = secondCompletion.choices?.[0]?.message?.content;
+                  if (rawReply) {
+                    rawReply = rawReply
+                      .replace(/<think>[\s\S]*?<\/think>/gi, "")
+                      .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
+                      .replace(/<reflection>[\s\S]*?<\/reflection>/gi, "")
+                      .replace(/<output>([\s\S]*?)<\/output>/gi, "$1")
+                      .trim();
+                  }
+                  if (rawReply) {
+                    secondReply = rawReply;
+                    break;
+                  }
+                } else {
+                  const rTag = retryModel.provider.charAt(0).toUpperCase() + retryModel.provider.slice(1);
+                  console.warn(
+                    `[${rTag}] Second call model ${retryModel.model} returned ${secondResponse.status} — trying next fallback model...`,
+                  );
                 }
-                if (rawReply) {
-                  secondReply = rawReply;
-                  break;
-                }
-              } else {
-                const rTag = retryModel.provider.charAt(0).toUpperCase() + retryModel.provider.slice(1);
-                console.warn(
-                  `[${rTag}] Second call model ${retryModel.model} returned ${secondResponse.status} — trying next fallback model...`,
-                );
+              } catch (rErr) {
+                // try next model
               }
-            } catch (rErr) {
-              // try next model
             }
           }
 
           // Set reply and ALWAYS break — tools already ran, do not retry with another model
-          reply = secondReply || "Done! ✅";
+          reply = secondReply || "Done bhai! ✅";
           break;
         } else if (responseMessage?.content) {
           reply = responseMessage.content;
@@ -978,6 +1056,12 @@ Do not include any <think> reasoning tags or internal system thoughts in your ou
       if (message.client.setActivity) message.client.setActivity(false);
       return;
     }
+
+    // Ensure no bot-like dashes or robotic bullet points slip through
+    reply = reply
+      .split("\n")
+      .map((line) => line.replace(/^[\s]*[-*]\s+/g, "• "))
+      .join("\n");
 
     if (reply.length > 2000) {
       reply = reply.substring(0, 1997) + "...";
