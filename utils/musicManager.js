@@ -226,10 +226,6 @@ class GuildQueue {
 
       this.connection.on("stateChange", (oldState, newState) => {
         console.log(`[Voice Connection ${this.guildId}] State: ${oldState.status} -> ${newState.status}`);
-        if (newState.status === VoiceConnectionStatus.Ready) {
-          console.log(`[Voice Connection ${this.guildId}] Connection READY! Subscribing player...`);
-          this.connection.subscribe(this.player);
-        }
       });
 
       this.connection.on("error", (err) => {
@@ -289,13 +285,17 @@ class GuildQueue {
       this.connect();
 
       // Ensure voice connection is completely Ready before streaming audio packets
-      try {
-        await entersState(this.connection, VoiceConnectionStatus.Ready, 10_000);
-      } catch (connErr) {
-        console.warn(`[Voice Warning] Connection did not reach Ready within 10s: ${connErr.message}`);
+      if (this.connection.state.status !== VoiceConnectionStatus.Ready) {
+        try {
+          await entersState(this.connection, VoiceConnectionStatus.Ready, 15_000);
+        } catch (connErr) {
+          console.warn(`[Voice Warning] Connection did not reach Ready within 15s: ${connErr.message}`);
+        }
       }
 
-      this.connection.subscribe(this.player);
+      if (!this.subscription || this.subscription.connection !== this.connection) {
+        this.subscription = this.connection.subscribe(this.player);
+      }
 
       let audioStream = null;
       let streamType = StreamType.Arbitrary;
@@ -336,7 +336,6 @@ class GuildQueue {
         resource.volume.setVolume(1.0);
       }
 
-      this.connection.subscribe(this.player);
       this.player.play(resource);
 
       if (this.player.state.status === AudioPlayerStatus.AutoPaused) {
@@ -369,6 +368,12 @@ class GuildQueue {
     this.songs = [];
     this.currentSong = null;
     this.isPlaying = false;
+    if (this.subscription) {
+      try {
+        this.subscription.unsubscribe();
+      } catch (e) {}
+      this.subscription = null;
+    }
     try {
       this.player.stop();
     } catch (e) {}
