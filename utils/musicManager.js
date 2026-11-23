@@ -326,13 +326,16 @@ class GuildQueue {
     this.idleTimer = null;
     this.autoplay = true;
     this.history = [];
+    this.isDestroyed = false;
 
     this.player.on(AudioPlayerStatus.Idle, () => {
+      if (this.isDestroyed) return;
       console.log(`[Music Player ${this.guildId}] Player became Idle, playing next track...`);
       this.playNext();
     });
 
     this.player.on("stateChange", (oldState, newState) => {
+      if (this.isDestroyed) return;
       console.log(`[Music Player ${this.guildId}] State: ${oldState.status} -> ${newState.status}`);
       if (newState.status === AudioPlayerStatus.AutoPaused) {
         console.log(`[Music Player ${this.guildId}] AutoPaused detected, unpausing...`);
@@ -341,6 +344,7 @@ class GuildQueue {
     });
 
     this.player.on("error", (error) => {
+      if (this.isDestroyed) return;
       console.error(`[Music Player Error in ${guildId}]:`, error.message);
       this.textChannel
         ?.send({
@@ -410,13 +414,16 @@ class GuildQueue {
   }
 
   async playNext() {
+    if (this.isDestroyed) return;
+
     if (this.songs.length === 0) {
-      if (this.autoplay && this.history.length > 0) {
+      if (!this.isDestroyed && this.autoplay && this.history.length > 0) {
         const lastSong = this.history[0];
         const seedArtist = lastSong.artist || "Arijit Singh";
         const seedQuery = `${seedArtist} top hits`;
         try {
           const recommendations = await searchMultipleTracks(seedQuery, 6);
+          if (this.isDestroyed) return;
           const historyTitles = new Set(this.history.map(h => (h.title || "").toLowerCase().replace(/[^a-z0-9]/g, "")));
           const candidates = recommendations.filter(r => !historyTitles.has((r.title || "").toLowerCase().replace(/[^a-z0-9]/g, "")));
 
@@ -547,19 +554,26 @@ class GuildQueue {
   }
 
   destroy() {
-    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.isDestroyed = true;
+    this.autoplay = false;
+    this.history = [];
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
     this.songs = [];
     this.currentSong = null;
     this.isPlaying = false;
+    try {
+      this.player.removeAllListeners();
+      this.player.stop(true);
+    } catch (e) {}
     if (this.subscription) {
       try {
         this.subscription.unsubscribe();
       } catch (e) {}
       this.subscription = null;
     }
-    try {
-      this.player.stop();
-    } catch (e) {}
     if (this.connection) {
       try {
         this.connection.destroy();
@@ -658,12 +672,14 @@ async function searchTrack(rawQuery) {
 }
 
 function getQueue(guildId) {
-  return queues.get(guildId) || null;
+  const q = queues.get(guildId);
+  if (!q || q.isDestroyed) return null;
+  return q;
 }
 
 function createOrGetQueue(guildId, voiceChannel, textChannel) {
   let q = queues.get(guildId);
-  if (!q) {
+  if (!q || q.isDestroyed) {
     q = new GuildQueue(guildId, voiceChannel, textChannel);
     queues.set(guildId, q);
   } else {
